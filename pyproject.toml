@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scopey"
+version = "0.1.1"
+description = "Scoped configuration for Python"
+dependencies = ["toml"]
+requires-python = ">=3.9"
+
+[tool.setuptools.packages.find]
+where = ["src"]

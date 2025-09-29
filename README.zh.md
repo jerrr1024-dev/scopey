@@ -145,12 +145,3 @@ port = 5432
 
 欢迎贡献代码！请随时提交 Pull Request。
 
----
-
-<div align="center">
-  <p>Made with ❤️ by C4C-Dev</p>
-  <p>
-    <a href="mailto:jerry.sy.bai@gmail.com">📧 Contact</a> |
-    <a href="https://github.com/C4C-Dev/scopey">🐙 GitHub</a>
-  </p>
-</div>

@@ -145,12 +145,3 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
----
-
-<div align="center">
-  <p>Made with ❤️ by C4C-Dev</p>
-  <p>
-    <a href="mailto:jerry.sy.bai@gmail.com">📧 Contact</a> |
-    <a href="https://github.com/C4C-Dev/scopey">🐙 GitHub</a>
-  </p>
-</div>

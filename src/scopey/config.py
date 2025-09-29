@@ -365,7 +365,7 @@ class BaseConfig:
 
     def to_toml(
         self,
-        path: str | Path | None = None,
+        path: str | None = None,
         global_section: str = "global",
         module_section: str | None = None,
         **kwargs,
@@ -393,8 +393,10 @@ class BaseConfig:
             raise ValueError(f"Unable to save TOML config to {path}: {e}")
 
     @classmethod
-    def merge(cls, configs: list[Self], class_name: str = "MergedConfig") -> Self:
-        """Merge configuration list, generate new dynamic class"""
+    def merge(
+        cls, configs: dict[str, Self] | list[Self], class_name: str = "MergedConfig"
+    ) -> Self:
+        """Merge configuration list or dict, generate new dynamic class"""
 
         # Collect field definitions
         field_definitions = []
@@ -402,29 +404,72 @@ class BaseConfig:
         seen_field_names = set()
         merged_raw_data = {}
 
-        for config in configs:
-            if not isinstance(config, BaseConfig):
-                raise TypeError(
-                    f"All configurations must be instances of BaseConfig, got: {type(config)}"
+        # Handle different input types
+        if isinstance(configs, dict):
+            # For dict form: use dict keys directly as field names
+            for field_name, config in configs.items():
+                if not isinstance(config, BaseConfig):
+                    raise TypeError(
+                        f"All configurations must be instances of BaseConfig, got: {type(config)}"
+                    )
+
+                # Check field name conflicts
+                if field_name in seen_field_names:
+                    raise ValueError(
+                        f"Field name conflict: '{field_name}' already exists"
+                    )
+                seen_field_names.add(field_name)
+
+                # Use default_factory to avoid mutable default value problems
+                field_definitions.append(
+                    (
+                        field_name,
+                        type(config),
+                        field(default_factory=lambda c=config: c),
+                    )
                 )
+                merged_data[field_name] = config
 
-            # Use configuration class name as field name (DataLoaderConfig -> dataloader)
-            field_name = config.__class__.__name__.lower().replace("config", "")
+                # Merge original data
+                if hasattr(config, "_raw_data") and config._raw_data:
+                    merged_raw_data.update(config._raw_data)
 
-            # Check field name conflicts
-            if field_name in seen_field_names:
-                raise ValueError(f"Field name conflict: '{field_name}' already exists")
-            seen_field_names.add(field_name)
+        elif isinstance(configs, list):
+            # For list form: use class names as field names (original behavior)
+            for config in configs:
+                if not isinstance(config, BaseConfig):
+                    raise TypeError(
+                        f"All configurations must be instances of BaseConfig, got: {type(config)}"
+                    )
 
-            # Use default_factory to avoid mutable default value problems
-            field_definitions.append(
-                (field_name, type(config), field(default_factory=lambda c=config: c))
+                # Use configuration class name as field name (DataLoaderConfig -> dataloader)
+                field_name = config.__class__.__name__.lower().replace("config", "")
+
+                # Check field name conflicts
+                if field_name in seen_field_names:
+                    raise ValueError(
+                        f"Field name conflict: '{field_name}' already exists"
+                    )
+                seen_field_names.add(field_name)
+
+                # Use default_factory to avoid mutable default value problems
+                field_definitions.append(
+                    (
+                        field_name,
+                        type(config),
+                        field(default_factory=lambda c=config: c),
+                    )
+                )
+                merged_data[field_name] = config
+
+                # Merge original data
+                if hasattr(config, "_raw_data") and config._raw_data:
+                    merged_raw_data.update(config._raw_data)
+
+        else:
+            raise TypeError(
+                f"configs must be either dict[str, BaseConfig] or list[BaseConfig], got: {type(configs)}"
             )
-            merged_data[field_name] = config
-
-            # Merge original data
-            if hasattr(config, "_raw_data") and config._raw_data:
-                merged_raw_data.update(config._raw_data)
 
         # Dynamically create merged class
         MergedConfig = make_dataclass(

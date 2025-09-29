@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scopey"
-version = "0.1.12"
+version = "0.1.13"
 description = "Scope Configuration for Python"
 authors = [{name = "C4C-Dev", email = "jerry.sy.bai@gmail.com"}]
 license-files = ["LICENSE"]
@@ -15,4 +15,4 @@ dependencies = ["toml"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"scopey" = ['py.typed']
+scopey = ['py.typed']

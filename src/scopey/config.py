@@ -3,6 +3,7 @@ import warnings
 from dataclasses import Field, dataclass, field, fields, make_dataclass
 from enum import Enum, auto
 from pathlib import Path
+from typing import Any, Self
 
 import toml
 
@@ -20,7 +21,7 @@ class ParamScope(Enum):
 def param_field(
     scope: ParamScope,
     required: bool,
-    default: any,
+    default: Any,
 ) -> Field:
 
     metadata = {"param_scope": scope, "required": required}
@@ -29,24 +30,24 @@ def param_field(
     return field(default_factory=lambda: copy.deepcopy(default), metadata=metadata)
 
 
-def global_param(required: bool = True, default: any = None) -> Field:
+def global_param(required: bool = True, default: Any = None) -> Field:
     return param_field(ParamScope.GLOBAL, required, default)
 
 
-def local_param(required: bool = True, default: any = None) -> Field:
+def local_param(required: bool = True, default: Any = None) -> Field:
     return param_field(ParamScope.LOCAL, required, default)
 
 
-def global_first_param(required: bool = True, default: any = None) -> Field:
+def global_first_param(required: bool = True, default: Any = None) -> Field:
     return param_field(ParamScope.GLOBAL_FIRST, required, default)
 
 
-def local_first_param(required: bool = True, default: any = None) -> Field:
+def local_first_param(required: bool = True, default: Any = None) -> Field:
     return param_field(ParamScope.LOCAL_FIRST, required, default)
 
 
 def nested_param(
-    nested_class: type, required: bool = True, default: any = None
+    nested_class: type, required: bool = True, default: Any = None
 ) -> Field:
     metadata = {
         "param_scope": ParamScope.NESTED,
@@ -74,7 +75,7 @@ class BaseConfig:
         global_section: str = "global",
         enable_default_override: bool = True,  # Whether to allow overriding default values in definitions
         warn_on_override: bool = True,  # Whether to warn when first-level parameter override occurs
-    ):
+    ) -> Self:
         try:
             with open(file=path, mode="r", encoding="utf-8") as f:
                 toml_data = toml.load(f=f)
@@ -93,12 +94,12 @@ class BaseConfig:
     @classmethod
     def from_dict(
         cls,
-        data: dict[str, any],
+        data: dict[str, Any],
         module_section: str,
         global_section: str = "global",
         enable_default_override: bool = True,  # Whether to allow overriding default values in definitions
         warn_on_override: bool = True,  # Whether to warn when first-level parameter override occurs
-    ):
+    ) -> Self:
 
         # Check basic validity of input data
         if not isinstance(data, dict):
@@ -154,7 +155,7 @@ class BaseConfig:
     @classmethod
     def get_param_value(
         cls,
-        data: dict[str, any],
+        data: dict[str, Any],
         field_name: str,
         scope: ParamScope,
         global_section: str,
@@ -162,7 +163,7 @@ class BaseConfig:
         warn_on_override: bool,
         required: bool = True,
         nested_class: type = None,  # if nested, pass the Class to call
-    ):
+    ) -> Any | None:
         global_value = data.get(global_section, {}).get(field_name)
         module_value = data.get(module_section, {}).get(field_name)
 
@@ -256,7 +257,7 @@ class BaseConfig:
         else:
             raise ValueError(f"Unknown parameter scope: {scope}")
 
-    def _validate_required_params(self):
+    def _validate_required_params(self) -> None:
 
         missing_required = []
         for f in fields(self):
@@ -279,7 +280,7 @@ class BaseConfig:
         module_section: str | None = None,
         include_none: bool = True,
         include_global_section: bool = True,
-    ) -> dict[str, any]:
+    ) -> dict[str, Any]:
 
         if module_section is None:
             module_section = self.__class__.__name__.lower().replace("config", "")
@@ -368,7 +369,7 @@ class BaseConfig:
         global_section: str = "global",
         module_section: str | None = None,
         **kwargs,
-    ):
+    ) -> None:
         """Save configuration object as TOML format"""
         data_dict = self.to_dict(
             global_section=global_section, module_section=module_section, **kwargs
@@ -392,9 +393,7 @@ class BaseConfig:
             raise ValueError(f"Unable to save TOML config to {path}: {e}")
 
     @classmethod
-    def merge(
-        cls, configs: list["BaseConfig"], class_name: str = "MergedConfig"
-    ) -> "BaseConfig":
+    def merge(cls, configs: list[Self], class_name: str = "MergedConfig") -> Self:
         """Merge configuration list, generate new dynamic class"""
 
         # Collect field definitions

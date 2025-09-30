@@ -242,7 +242,7 @@ class BaseConfig:
         path: str | Path,
         sections: dict[str, type["BaseConfig"]],
         global_section: str = "global",
-        class_name: str = "MergedConfig",
+        merged_name: str = "MergedConfig",
         enable_default_override: bool = True,
         warn_on_override: bool = True,
     ) -> Self:
@@ -258,7 +258,7 @@ class BaseConfig:
             sections: Dictionary mapping section names to their corresponding BaseConfig classes
                      e.g., {"database": DatabaseConfig, "cache": CacheConfig}
             global_section: Name of the global section (default: "global")
-            class_name: Name for the dynamically created merged class (default: "MergedConfig")
+            merged_name: Name for the dynamically created merged class (default: "MergedConfig")
             enable_default_override: Whether to allow TOML values to override field defaults (default: True)
             warn_on_override: Whether to warn when priority-based parameter override occurs (default: True)
 
@@ -329,7 +329,7 @@ class BaseConfig:
             config_instances[section_name] = config_instance  # type: ignore[assignment]
 
         # Merge all instances into a single configuration
-        return cls.merge(config_instances, class_name=class_name)
+        return cls.merge(config_instances, merged_name=class_name)
 
     @classmethod
     def from_dict(
@@ -842,7 +842,7 @@ class BaseConfig:
 
     @classmethod
     def merge(
-        cls, configs: dict[str, Self] | list[Self], class_name: str = "MergedConfig"
+        cls, configs: dict[str, Self] | list[Self], merged_name: str = "MergedConfig"
     ) -> Self:
         """
         Merge multiple configuration instances into a single combined configuration.
@@ -854,7 +854,7 @@ class BaseConfig:
         Args:
             configs: Either a dict mapping field names to config instances, or a list of
                     config instances (field names will be derived from class names)
-            class_name: Name for the dynamically created merged class (default: "MergedConfig")
+            merged_name: Name for the dynamically created merged class (default: "MergedConfig")
 
         Returns:
             A new configuration instance containing all input configs as nested fields,
@@ -951,7 +951,7 @@ class BaseConfig:
 
         # Dynamically create merged class
         MergedConfig = make_dataclass(
-            class_name,
+            merged_name,
             field_definitions,
             bases=(BaseConfig,),
             namespace={"__module__": cls.__module__},
@@ -967,8 +967,8 @@ class BaseConfig:
     @classmethod
     def combine(
         cls,
-        model_classes: dict[str, type[Self]] | list[type[Self]],
-        class_name: str = "CombinedConfig",
+        configs: dict[str, type[Self]] | list[type[Self]],
+        combined_name: str = "CombinedConfig",
     ) -> Self:
         """
         Combine multiple BaseConfig subclass definitions into a single Config instance.
@@ -977,16 +977,16 @@ class BaseConfig:
         the merge() method. Useful for generating TOML templates from multiple config classes.
 
         Args:
-            model_classes: Either a dict mapping field names to BaseConfig subclasses, or a
-                          list of BaseConfig subclasses (field names derived from class names)
-            class_name: Name for the dynamically created combined class (default: "CombinedConfig")
+            configs: Either a dict mapping field names to BaseConfig subclasses, or a
+                    list of BaseConfig subclasses (field names derived from class names)
+            combined_name: Name for the dynamically created combined class (default: "CombinedConfig")
 
         Returns:
             A new Config instance containing all fields from the input classes,
             with _is_merged flag set to True
 
         Raises:
-            ValueError: If no model classes provided
+            ValueError: If no config classes provided
             TypeError: If any input is not a BaseConfig subclass
 
         Example:
@@ -1003,12 +1003,12 @@ class BaseConfig:
             >>> config.to_flat_toml("template.toml")
         """
         # Handle different input types
-        if isinstance(model_classes, dict):
-            if not model_classes:
+        if isinstance(configs, dict):
+            if not configs:
                 raise ValueError("At least one model class must be provided")
 
             # Validate that all values are BaseConfig subclasses
-            for field_name, model_class in model_classes.items():
+            for field_name, model_class in configs.items():
                 if not isinstance(model_class, type) or not issubclass(
                     model_class, BaseConfig
                 ):
@@ -1018,19 +1018,19 @@ class BaseConfig:
 
             # Create instances from each class, preserving field names
             config_dict_instances: dict[str, Self] = {}
-            for field_name, model_class in model_classes.items():
+            for field_name, model_class in configs.items():
                 instance = model_class()  # type: ignore[misc]
                 config_dict_instances[field_name] = instance  # type: ignore[assignment]
 
             # Use merge to combine all instances
-            return cls.merge(config_dict_instances, class_name=class_name)
+            return cls.merge(config_dict_instances, merged_name=combined_name)
 
-        elif isinstance(model_classes, list):
-            if not model_classes:
+        elif isinstance(configs, list):
+            if not configs:
                 raise ValueError("At least one model class must be provided")
 
             # Validate that all inputs are BaseConfig subclasses
-            for model_class in model_classes:
+            for model_class in configs:
                 if not isinstance(model_class, type) or not issubclass(
                     model_class, BaseConfig
                 ):
@@ -1040,14 +1040,14 @@ class BaseConfig:
 
             # Create instances from each class
             config_list_instances: list[Self] = []
-            for model_class in model_classes:
+            for model_class in configs:
                 instance = model_class()  # type: ignore[misc]
                 config_list_instances.append(instance)  # type: ignore[arg-type]
 
             # Use merge to combine all instances
-            return cls.merge(config_list_instances, class_name=class_name)
+            return cls.merge(config_list_instances, merged_name=combined_name)
 
         else:
             raise TypeError(
-                f"model_classes must be either dict[str, type[BaseConfig]] or list[type[BaseConfig]], got: {type(model_classes)}"
+                f"model_classes must be either dict[str, type[BaseConfig]] or list[type[BaseConfig]], got: {type(configs)}"
             )

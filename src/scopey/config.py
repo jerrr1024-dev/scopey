@@ -5,7 +5,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Self
 
-import toml
+import tomlkit
 
 from .utils import check_path
 
@@ -23,7 +23,21 @@ def param_field(
     required: bool,
     default: Any,
 ) -> Field:
+    """
+    Create a dataclass field with parameter scope metadata.
 
+    This is the base function used by all param helper functions (global_param,
+    local_param, etc.). It uses default_factory with deepcopy to prevent mutable
+    default value issues.
+
+    Args:
+        scope: The parameter scope (GLOBAL, LOCAL, NESTED, etc.)
+        required: Whether this parameter is required
+        default: The default value (will be deep-copied)
+
+    Returns:
+        A dataclass Field with scope metadata
+    """
     metadata = {"param_scope": scope, "required": required}
 
     # use deepcopy to prevent unintended mutation of original object
@@ -31,24 +45,119 @@ def param_field(
 
 
 def global_param(required: bool = True, default: Any = None) -> Field:
+    """
+    Create a GLOBAL scope parameter field.
+
+    GLOBAL parameters must be defined in the global section only. They cannot
+    appear in module-specific sections.
+
+    Args:
+        required: Whether this parameter is required (default: True)
+        default: Default value if not provided (default: None)
+
+    Returns:
+        A dataclass Field configured for GLOBAL scope
+
+    Example:
+        >>> @dataclass
+        >>> class MyConfig(BaseConfig):
+        ...     log_level: str = global_param(default="INFO")
+    """
     return param_field(ParamScope.GLOBAL, required, default)
 
 
 def local_param(required: bool = True, default: Any = None) -> Field:
+    """
+    Create a LOCAL scope parameter field.
+
+    LOCAL parameters must be defined in the module-specific section only.
+    They cannot appear in the global section.
+
+    Args:
+        required: Whether this parameter is required (default: True)
+        default: Default value if not provided (default: None)
+
+    Returns:
+        A dataclass Field configured for LOCAL scope
+
+    Example:
+        >>> @dataclass
+        >>> class MyConfig(BaseConfig):
+        ...     module_name: str = local_param(default="mymodule")
+    """
     return param_field(ParamScope.LOCAL, required, default)
 
 
 def global_first_param(required: bool = True, default: Any = None) -> Field:
+    """
+    Create a GLOBAL_FIRST scope parameter field.
+
+    GLOBAL_FIRST parameters prioritize the global section but fall back to
+    the module section if not found. Warns if both are defined.
+
+    Args:
+        required: Whether this parameter is required (default: True)
+        default: Default value if not provided (default: None)
+
+    Returns:
+        A dataclass Field configured for GLOBAL_FIRST scope
+
+    Example:
+        >>> @dataclass
+        >>> class MyConfig(BaseConfig):
+        ...     timeout: int = global_first_param(default=30)
+    """
     return param_field(ParamScope.GLOBAL_FIRST, required, default)
 
 
 def local_first_param(required: bool = True, default: Any = None) -> Field:
+    """
+    Create a LOCAL_FIRST scope parameter field.
+
+    LOCAL_FIRST parameters prioritize the module section but fall back to
+    the global section if not found. Warns if both are defined.
+
+    Args:
+        required: Whether this parameter is required (default: True)
+        default: Default value if not provided (default: None)
+
+    Returns:
+        A dataclass Field configured for LOCAL_FIRST scope
+
+    Example:
+        >>> @dataclass
+        >>> class MyConfig(BaseConfig):
+        ...     batch_size: int = local_first_param(default=32)
+    """
     return param_field(ParamScope.LOCAL_FIRST, required, default)
 
 
 def nested_param(
     nested_class: type, required: bool = True, default: Any = None
 ) -> Field:
+    """
+    Create a NESTED scope parameter field.
+
+    NESTED parameters contain nested configuration objects of another
+    BaseConfig subclass. The nested class is recursively instantiated.
+
+    Args:
+        nested_class: The BaseConfig subclass to use for nested configuration
+        required: Whether this parameter is required (default: True)
+        default: Default value if not provided (default: None)
+
+    Returns:
+        A dataclass Field configured for NESTED scope with nested class metadata
+
+    Example:
+        >>> @dataclass
+        >>> class DatabaseConfig(BaseConfig):
+        ...     host: str = local_param(default="localhost")
+        >>>
+        >>> @dataclass
+        >>> class AppConfig(BaseConfig):
+        ...     database: DatabaseConfig = nested_param(nested_class=DatabaseConfig)
+    """
     metadata = {
         "param_scope": ParamScope.NESTED,
         "required": required,
@@ -60,9 +169,25 @@ def nested_param(
 @dataclass
 class BaseConfig:
     def __post_init__(self) -> None:
+        """
+        Initialize configuration instance after dataclass initialization.
+
+        This method is automatically called after __init__. It performs the following:
+        1. Initializes _raw_data to store the original configuration dict
+        2. Initializes _is_merged flag to track if this is a merged configuration
+        3. Calls validate() for custom validation logic
+
+        Note:
+            _raw_data and _is_merged are instance attributes, not dataclass fields.
+            They won't appear in fields() or __init__ parameters.
+        """
         # Initialize original data storage
         if not hasattr(self, "_raw_data"):
             self._raw_data = None
+
+        # Initialize merged flag
+        if not hasattr(self, "_is_merged"):
+            self._is_merged = False
 
         self.validate()
 
@@ -73,12 +198,31 @@ class BaseConfig:
         path: str | Path,
         module_section: str,
         global_section: str = "global",
-        enable_default_override: bool = True,  # Whether to allow overriding default values in definitions
-        warn_on_override: bool = True,  # Whether to warn when first-level parameter override occurs
+        enable_default_override: bool = True,
+        warn_on_override: bool = True,
     ) -> Self:
+        """
+        Create a configuration instance from a TOML file.
+
+        Args:
+            path: Path to the TOML file (must have .toml extension)
+            module_section: Name of the module-specific section in the TOML file
+            global_section: Name of the global section (default: "global")
+            enable_default_override: Whether to allow TOML values to override field defaults (default: True)
+            warn_on_override: Whether to warn when priority-based parameter override occurs (default: True)
+
+        Returns:
+            A new instance of the configuration class with values loaded from the TOML file
+
+        Raises:
+            ValueError: If the file cannot be loaded or parsed
+
+        Example:
+            >>> config = MyConfig.from_toml("config.toml", module_section="mymodule")
+        """
         try:
             with open(file=path, mode="r", encoding="utf-8") as f:
-                toml_data = toml.load(f=f)
+                toml_data = tomlkit.load(f)
 
             return cls.from_dict(
                 toml_data,
@@ -86,10 +230,106 @@ class BaseConfig:
                 global_section,
                 enable_default_override,
                 warn_on_override,
-            )  # Whether to warn when first-level parameter override occurs
+            )
 
         except Exception as e:
             raise ValueError(f"Can not load TOML config from {path}: {e}")
+
+    @classmethod
+    @check_path(check_type="file", suffix="toml")
+    def from_flat_toml(
+        cls,
+        path: str | Path,
+        sections: dict[str, type["BaseConfig"]],
+        global_section: str = "global",
+        class_name: str = "MergedConfig",
+        enable_default_override: bool = True,
+        warn_on_override: bool = True,
+    ) -> Self:
+        """
+        Create a merged configuration instance from a flat TOML file.
+
+        This method is the inverse of to_flat_toml(). It reads a flat TOML structure
+        where multiple configurations are at the top level, instantiates each section
+        with its corresponding config class, and merges them into a single configuration.
+
+        Args:
+            path: Path to the flat TOML file (must have .toml extension)
+            sections: Dictionary mapping section names to their corresponding BaseConfig classes
+                     e.g., {"database": DatabaseConfig, "cache": CacheConfig}
+            global_section: Name of the global section (default: "global")
+            class_name: Name for the dynamically created merged class (default: "MergedConfig")
+            enable_default_override: Whether to allow TOML values to override field defaults (default: True)
+            warn_on_override: Whether to warn when priority-based parameter override occurs (default: True)
+
+        Returns:
+            A merged configuration instance with _is_merged flag set to True
+
+        Raises:
+            ValueError: If the file cannot be loaded or a specified section is not found
+            TypeError: If any section class is not a BaseConfig subclass
+
+        Example:
+            >>> # Given a flat TOML file:
+            >>> # [global]
+            >>> # log_level = "INFO"
+            >>> #
+            >>> # [database]
+            >>> # host = "localhost"
+            >>> #
+            >>> # [cache]
+            >>> # ttl = 3600
+            >>>
+            >>> merged = Config.from_flat_toml(
+            ...     "config.toml",
+            ...     sections={"database": DatabaseConfig, "cache": CacheConfig}
+            ... )
+            >>> # Now you can use merged.database.host or merged.cache.ttl
+        """
+        # Validate section classes
+        for section_name, config_class in sections.items():
+            if not isinstance(config_class, type) or not issubclass(
+                config_class, BaseConfig
+            ):
+                raise TypeError(
+                    f"Section '{section_name}' must be a BaseConfig subclass, got: {config_class}"
+                )
+
+        try:
+            with open(file=path, mode="r", encoding="utf-8") as f:
+                toml_data = tomlkit.load(f)
+        except Exception as e:
+            raise ValueError(f"Cannot load TOML config from {path}: {e}")
+
+        # Instantiate each section with its corresponding class
+        config_instances: dict[str, Self] = {}
+        for section_name, config_class in sections.items():
+            if section_name not in toml_data:
+                raise ValueError(
+                    f"Section '{section_name}' not found in {path}. "
+                    f"Available sections: {list(toml_data.keys())}"
+                )
+
+            # Create a temporary data structure for this section
+            # The flat TOML has each config at top level, we need to restructure it
+            section_data = {section_name: toml_data[section_name]}
+
+            # Include global section if it exists
+            if global_section in toml_data:
+                section_data[global_section] = toml_data[global_section]
+
+            # Instantiate the config for this section
+            config_instance = config_class.from_dict(
+                data=section_data,
+                module_section=section_name,
+                global_section=global_section,
+                enable_default_override=enable_default_override,
+                warn_on_override=warn_on_override,
+            )
+            config_instances[section_name] = config_instance  # type: ignore[assignment]
+
+        # Merge all instances into a single configuration
+        return cls.merge(config_instances, class_name=class_name)
 
     @classmethod
     def from_dict(
@@ -97,9 +337,34 @@ class BaseConfig:
         data: dict[str, Any],
         module_section: str,
         global_section: str = "global",
-        enable_default_override: bool = True,  # Whether to allow overriding default values in definitions
-        warn_on_override: bool = True,  # Whether to warn when first-level parameter override occurs
+        enable_default_override: bool = True,
+        warn_on_override: bool = True,
     ) -> Self:
+        """
+        Create a configuration instance from a dictionary.
+
+        This method handles the complex logic of mapping dictionary data to configuration
+        fields based on their parameter scopes (GLOBAL, LOCAL, NESTED, etc.).
+
+        Args:
+            data: Dictionary containing configuration data, typically with global and module sections
+            module_section: Name of the module-specific section to read from
+            global_section: Name of the global section (default: "global")
+            enable_default_override: Whether to allow dict values to override field defaults (default: True)
+            warn_on_override: Whether to warn when priority-based parameter override occurs (default: True)
+
+        Returns:
+            A new instance of the configuration class populated with data from the dict
+
+        Raises:
+            TypeError: If data is not a dict
+            ValueError: If module_section is not found in data
+            ValueError: If any field is missing param_scope metadata
+
+        Example:
+            >>> data = {"global": {"host": "localhost"}, "mymodule": {"port": 8080}}
+            >>> config = MyConfig.from_dict(data, module_section="mymodule")
+        """
 
         # Check basic validity of input data
         if not isinstance(data, dict):
@@ -141,7 +406,7 @@ class BaseConfig:
                 value = None
 
             if value is None:  # value is None, use default_factory (even be None)
-                value = f.default_factory()
+                value = f.default_factory()  # type: ignore[misc]
 
             params[field_name] = value
 
@@ -149,7 +414,7 @@ class BaseConfig:
         # validate required params
         instance._validate_required_params()
         # Save original data
-        instance._raw_data = copy.deepcopy(data)
+        instance._raw_data = copy.deepcopy(data)  # type: ignore[assignment]
         return instance
 
     @classmethod
@@ -162,8 +427,35 @@ class BaseConfig:
         module_section: str,
         warn_on_override: bool,
         required: bool = True,
-        nested_class: type = None,  # if nested, pass the Class to call
+        nested_class: type["BaseConfig"] | None = None,
     ) -> Any | None:
+        """
+        Extract a parameter value from configuration data based on its scope.
+
+        This method implements the core logic for parameter scope resolution:
+        - GLOBAL: Must be in global section only
+        - LOCAL: Must be in module section only
+        - GLOBAL_FIRST: Prioritize global, fall back to module
+        - LOCAL_FIRST: Prioritize module, fall back to global
+        - NESTED: Recursively instantiate nested configuration class
+
+        Args:
+            data: Configuration dictionary
+            field_name: Name of the field to extract
+            scope: Parameter scope defining where to look for the value
+            global_section: Name of the global section
+            module_section: Name of the module section
+            warn_on_override: Whether to warn when priority-based override occurs
+            required: Whether this parameter is required (default: True)
+            nested_class: For NESTED scope, the BaseConfig subclass to instantiate
+
+        Returns:
+            The extracted value, or None if not found and not required
+
+        Raises:
+            ValueError: If required parameter is missing or scope rules are violated
+            TypeError: If nested data is not a dict
+        """
         global_value = data.get(global_section, {}).get(field_name)
         module_value = data.get(module_section, {}).get(field_name)
 
@@ -242,7 +534,7 @@ class BaseConfig:
                     f"Nested section '{module_section}.{field_name}' must be a dict, got {type(nested_data)}"
                 )
 
-            tmp_data = {field_name: nested_data}
+            tmp_data: dict[str, Any] = {field_name: nested_data}
             if global_section in data:
                 tmp_data[global_section] = data[global_section]
 
@@ -258,7 +550,16 @@ class BaseConfig:
             raise ValueError(f"Unknown parameter scope: {scope}")
 
     def _validate_required_params(self) -> None:
+        """
+        Validate that all required parameters have non-None values.
 
+        This method is called automatically during instance creation via from_dict()
+        and from_toml(). It checks all fields marked as required=True and ensures
+        they have been assigned a value.
+
+        Raises:
+            ValueError: If any required parameter is None
+        """
         missing_required = []
         for f in fields(self):
             is_required = f.metadata.get("required", False)
@@ -271,7 +572,23 @@ class BaseConfig:
             raise ValueError(f"Missing required parameters: {missing_required}")
 
     def validate(self) -> None:
-        # validate in baseconfig
+        """
+        Custom validation hook for subclasses.
+
+        Override this method in your configuration subclass to implement custom
+        validation logic beyond the automatic required parameter checking.
+
+        This method is called automatically during instance initialization in __post_init__,
+        after _raw_data and _is_merged are initialized.
+
+        Example:
+            >>> class MyConfig(BaseConfig):
+            ...     port: int = local_param(default=8080)
+            ...
+            ...     def validate(self):
+            ...         if self.port < 1 or self.port > 65535:
+            ...             raise ValueError(f"Invalid port: {self.port}")
+        """
         pass
 
     def to_dict(
@@ -281,11 +598,31 @@ class BaseConfig:
         include_none: bool = True,
         include_global_section: bool = True,
     ) -> dict[str, Any]:
+        """
+        Convert configuration instance to a dictionary representation.
+
+        This method creates a structured dictionary with separate global and module sections,
+        respecting parameter scopes and handling nested configurations recursively.
+
+        Args:
+            global_section: Name for the global section (default: "global")
+            module_section: Name for the module section. If None, derived from class name (default: None)
+            include_none: Whether to include fields with None values (default: True)
+            include_global_section: Whether to include global section in output (default: True)
+
+        Returns:
+            Dictionary with structure: {global_section: {...}, module_section: {...}}
+
+        Example:
+            >>> config = MyConfig(host="localhost", port=8080)
+            >>> config.to_dict()
+            {'global': {'host': 'localhost'}, 'mymodule': {'port': 8080}}
+        """
 
         if module_section is None:
             module_section = self.__class__.__name__.lower().replace("config", "")
 
-        result = {}
+        result: dict[str, Any] = {}
 
         # Decide whether to create global section based on parameter
         if include_global_section:
@@ -370,39 +707,176 @@ class BaseConfig:
         module_section: str | None = None,
         **kwargs,
     ) -> None:
-        """Save configuration object as TOML format"""
+        """
+        Save configuration as a TOML file.
+
+        This method converts the configuration to a dictionary using to_dict() and
+        writes it to a TOML file. The file structure preserves global and module sections.
+
+        Args:
+            path: Output file path. If None, generates filename from class name (default: None)
+            global_section: Name for the global section (default: "global")
+            module_section: Name for the module section. If None, derived from class name (default: None)
+            **kwargs: Additional arguments passed to to_dict() (include_none, include_global_section)
+
+        Raises:
+            ValueError: If unable to write the TOML file
+
+        Example:
+            >>> config = MyConfig(host="localhost", port=8080)
+            >>> config.to_toml("config.toml")
+            # Creates config.toml with [global] and [mymodule] sections
+        """
         data_dict = self.to_dict(
             global_section=global_section, module_section=module_section, **kwargs
         )
 
+        final_path: Path
         if path is None:
             # Automatically generate filename based on class name
             class_name = self.__class__.__name__
             filename = class_name.lower().replace("config", "") + ".toml"
-            path = Path(filename)
+            final_path = Path(filename)
         else:
-            path = Path(path)
+            final_path = Path(path)
 
         # Ensure directory exists
-        path.parent.mkdir(parents=True, exist_ok=True)
+        final_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                toml.dump(data_dict, f)
+            with open(final_path, "w", encoding="utf-8") as f:
+                tomlkit.dump(data_dict, f)
         except Exception as e:
             raise ValueError(f"Unable to save TOML config to {path}: {e}")
+
+    def to_flat_toml(
+        self,
+        path: str | None = None,
+        global_section: str = "global",
+        **kwargs,
+    ) -> None:
+        """
+        Save configuration as a flattened TOML file.
+
+        This method is designed for merged configurations created by the merge() or combine()
+        methods. It flattens the top-level nested structure, promoting nested config sections
+        to the top level.
+
+        For example, a merged config with structure:
+            [mergedconfig]
+              [mergedconfig.database]
+              [mergedconfig.cache]
+
+        Will be flattened to:
+            [database]
+            [cache]
+
+        Args:
+            path: Output file path. If None, generates filename from class name
+            global_section: Name of the global section (default: "global")
+            **kwargs: Additional arguments passed to to_dict()
+
+        Raises:
+            ValueError: If called on a non-merged configuration
+
+        Note:
+            This method only flattens the merge-generated wrapper. User-defined
+            nested_param fields within each config are preserved.
+        """
+        if not getattr(self, "_is_merged", False):
+            raise ValueError(
+                "to_flat_toml() can only be used on merged configurations created by "
+                "merge() or combine() methods. For regular configs, use to_toml() instead."
+            )
+
+        # Get the full nested structure
+        data_dict = self.to_dict(
+            global_section=global_section,
+            module_section=None,  # Let it use class name
+            **kwargs,
+        )
+
+        # Flatten: extract nested configs and promote them to top level
+        flattened_dict: dict[str, Any] = {}
+
+        # First, copy the global section if it exists
+        if global_section in data_dict:
+            flattened_dict[global_section] = data_dict[global_section]
+
+        # Find the wrapper section (the merged config's own section)
+        wrapper_section = None
+        for key in data_dict.keys():
+            if key != global_section:
+                wrapper_section = key
+                break
+
+        if wrapper_section and isinstance(data_dict[wrapper_section], dict):
+            # Extract all nested sections from the wrapper
+            for nested_key, nested_value in data_dict[wrapper_section].items():
+                if isinstance(nested_value, dict):
+                    # This is a nested config, promote it to top level
+                    flattened_dict[nested_key] = nested_value
+                else:
+                    # This is a direct field (shouldn't happen in merged configs, but handle it)
+                    if wrapper_section not in flattened_dict:
+                        flattened_dict[wrapper_section] = {}
+                    flattened_dict[wrapper_section][nested_key] = nested_value
+
+        final_path: Path
+        if path is None:
+            # Automatically generate filename
+            class_name = self.__class__.__name__
+            filename = class_name.lower().replace("config", "") + "_flat.toml"
+            final_path = Path(filename)
+        else:
+            final_path = Path(path)
+
+        # Ensure directory exists
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(final_path, "w", encoding="utf-8") as f:
+                tomlkit.dump(flattened_dict, f)
+        except Exception as e:
+            raise ValueError(f"Unable to save flattened TOML config to {path}: {e}")
 
     @classmethod
     def merge(
         cls, configs: dict[str, Self] | list[Self], class_name: str = "MergedConfig"
     ) -> Self:
-        """Merge configuration list or dict, generate new dynamic class"""
+        """
+        Merge multiple configuration instances into a single combined configuration.
+
+        This method creates a new dynamic configuration class that contains all input
+        configurations as nested fields. Each configuration becomes a nested_param field
+        in the merged result.
+
+        Args:
+            configs: Either a dict mapping field names to config instances, or a list of
+                    config instances (field names will be derived from class names)
+            class_name: Name for the dynamically created merged class (default: "MergedConfig")
+
+        Returns:
+            A new configuration instance containing all input configs as nested fields,
+            with _is_merged flag set to True
+
+        Raises:
+            TypeError: If configs is not a dict or list, or if any config is not a BaseConfig instance
+            ValueError: If field name conflicts occur
+
+        Example:
+            >>> db_config = DatabaseConfig(host="localhost")
+            >>> cache_config = CacheConfig(ttl=3600)
+            >>> merged = Config.merge([db_config, cache_config])
+            >>> merged.to_toml("merged.toml")  # Creates nested structure
+            >>> merged.to_flat_toml("flat.toml")  # Creates flat structure
+        """
 
         # Collect field definitions
-        field_definitions = []
-        merged_data = {}
-        seen_field_names = set()
-        merged_raw_data = {}
+        field_definitions: list[tuple[str, type, Field]] = []
+        merged_data: dict[str, Any] = {}
+        seen_field_names: set[str] = set()
+        merged_raw_data: dict[str, Any] = {}
 
         # Handle different input types
         if isinstance(configs, dict):
@@ -425,7 +899,9 @@ class BaseConfig:
                     (
                         field_name,
                         type(config),
-                        field(default_factory=lambda c=config: c),
+                        nested_param(
+                            nested_class=type(config), required=False, default=config
+                        ),
                     )
                 )
                 merged_data[field_name] = config
@@ -457,7 +933,9 @@ class BaseConfig:
                     (
                         field_name,
                         type(config),
-                        field(default_factory=lambda c=config: c),
+                        nested_param(
+                            nested_class=type(config), required=False, default=config
+                        ),
                     )
                 )
                 merged_data[field_name] = config
@@ -482,4 +960,94 @@ class BaseConfig:
         merged_instance = MergedConfig(**merged_data)
         # Save merged original data
         merged_instance._raw_data = merged_raw_data
+        # Mark as merged config
+        merged_instance._is_merged = True
         return merged_instance
+
+    @classmethod
+    def combine(
+        cls,
+        model_classes: dict[str, type[Self]] | list[type[Self]],
+        class_name: str = "CombinedConfig",
+    ) -> Self:
+        """
+        Combine multiple BaseConfig subclass definitions into a single Config instance.
+
+        This method converts each class definition to instances, then merges them using
+        the merge() method. Useful for generating TOML templates from multiple config classes.
+
+        Args:
+            model_classes: Either a dict mapping field names to BaseConfig subclasses, or a
+                          list of BaseConfig subclasses (field names derived from class names)
+            class_name: Name for the dynamically created combined class (default: "CombinedConfig")
+
+        Returns:
+            A new Config instance containing all fields from the input classes,
+            with _is_merged flag set to True
+
+        Raises:
+            ValueError: If no model classes provided
+            TypeError: If any input is not a BaseConfig subclass
+
+        Example:
+            >>> class DatabaseConfig(BaseConfig):
+            ...     host: str = local_param(default="localhost")
+            >>> class CacheConfig(BaseConfig):
+            ...     ttl: int = local_param(default=3600)
+            >>>
+            >>> # Using list (field names from class names)
+            >>> config = Config.combine([DatabaseConfig, CacheConfig])
+            >>>
+            >>> # Using dict (custom field names)
+            >>> config = Config.combine({"db": DatabaseConfig, "cache": CacheConfig})
+            >>> config.to_flat_toml("template.toml")
+        """
+        # Handle different input types
+        if isinstance(model_classes, dict):
+            if not model_classes:
+                raise ValueError("At least one model class must be provided")
+
+            # Validate that all values are BaseConfig subclasses
+            for field_name, model_class in model_classes.items():
+                if not isinstance(model_class, type) or not issubclass(
+                    model_class, BaseConfig
+                ):
+                    raise TypeError(
+                        f"All values must be BaseConfig subclasses, got {model_class} for key '{field_name}'"
+                    )
+
+            # Create instances from each class, preserving field names
+            config_dict_instances: dict[str, Self] = {}
+            for field_name, model_class in model_classes.items():
+                instance = model_class()  # type: ignore[misc]
+                config_dict_instances[field_name] = instance  # type: ignore[assignment]
+
+            # Use merge to combine all instances
+            return cls.merge(config_dict_instances, class_name=class_name)
+
+        elif isinstance(model_classes, list):
+            if not model_classes:
+                raise ValueError("At least one model class must be provided")
+
+            # Validate that all inputs are BaseConfig subclasses
+            for model_class in model_classes:
+                if not isinstance(model_class, type) or not issubclass(
+                    model_class, BaseConfig
+                ):
+                    raise TypeError(
+                        f"All arguments must be BaseConfig subclasses, got: {model_class}"
+                    )
+
+            # Create instances from each class
+            config_list_instances: list[Self] = []
+            for model_class in model_classes:
+                instance = model_class()  # type: ignore[misc]
+                config_list_instances.append(instance)  # type: ignore[arg-type]
+
+            # Use merge to combine all instances
+            return cls.merge(config_list_instances, class_name=class_name)
+
+        else:
+            raise TypeError(
+                f"model_classes must be either dict[str, type[BaseConfig]] or list[type[BaseConfig]], got: {type(model_classes)}"
+            )

@@ -700,37 +700,271 @@ class BaseConfig:
 
         return result
 
+    def _get_type_name(self, type_hint: Any) -> str:
+        """Extract type name from type hint"""
+        if hasattr(type_hint, "__name__"):
+            return type_hint.__name__
+        elif hasattr(type_hint, "__origin__"):
+            # Handle Optional, Union, etc.
+            origin = type_hint.__origin__
+            if origin is type(None):
+                return "None"
+            return getattr(origin, "__name__", str(type_hint))
+        else:
+            type_str = str(type_hint)
+            # Extract from string like "<class 'int'>"
+            if "int" in type_str:
+                return "int"
+            elif "str" in type_str:
+                return "str"
+            elif "bool" in type_str:
+                return "bool"
+            elif "float" in type_str:
+                return "float"
+            elif "list" in type_str:
+                return "list"
+            return "str"  # Default fallback
+
+    def _get_type_placeholder(self, type_str: str) -> str:
+        """Get placeholder value for a type"""
+        type_map = {
+            "str": '""',
+            "int": "0",
+            "float": "0.0",
+            "bool": "false",
+            "list": "[]",
+        }
+        return type_map.get(type_str, '""')
+
+    def _is_nested_config(self, value: Any) -> bool:
+        """Check if a value is a nested config (BaseConfig instance)"""
+        return isinstance(value, BaseConfig)
+
+    def _get_field_metadata(self, section_path: str, field_name: str) -> dict[str, Any]:
+        """
+        Get field metadata with support for nested paths
+
+        Args:
+            section_path: Section path like "database" or "database.auth"
+            field_name: Field name to look up
+
+        Returns:
+            Dict with 'type', 'scope', 'required' keys
+        """
+        # Parse path to find the correct config class
+        path_parts = section_path.split(".")
+        current_class = self.__class__
+
+        # Navigate through nested structures
+        for part in path_parts[:-1]:
+            found = False
+            for f in fields(current_class):
+                if f.name == part:
+                    nested_class = f.metadata.get("nested_class")
+                    if nested_class:
+                        current_class = nested_class
+                        found = True
+                        break
+            if not found:
+                break
+
+        # Find the field in current class
+        for f in fields(current_class):
+            if f.name == field_name:
+                return {
+                    "type": self._get_type_name(f.type),
+                    "scope": f.metadata.get("param_scope", ParamScope.LOCAL),
+                    "required": f.metadata.get("required", False),
+                }
+
+        # Default fallback
+        return {"type": "str", "scope": ParamScope.LOCAL, "required": False}
+
+    def _format_field_comment(self, key: str, value: Any, meta: dict[str, Any]) -> str:
+        """
+        Format field comment: type | scope | [required/optional] | [default: value]
+
+        Args:
+            key: Field name
+            value: Field value (None for unset fields)
+            meta: Field metadata dict
+
+        Returns:
+            Formatted comment string
+        """
+        parts = []
+
+        # Type
+        parts.append(meta.get("type", "str"))
+
+        # Scope
+        scope = meta.get("scope", ParamScope.LOCAL)
+        parts.append(scope.name)
+
+        # Required/Optional status (only for None fields)
+        if value is None:
+            required = meta.get("required", False)
+            parts.append("required" if required else "optional")
+        # Default value (only for non-None, non-empty fields)
+        elif value not in (None, "", 0, False, []):
+            parts.append(f"default: {value}")
+
+        return " | ".join(parts)
+
+    def _dict_to_toml_with_comments(
+        self, data: dict[str, Any], show_comments: bool = True, parent_path: str = ""
+    ) -> str:
+        """
+        Generate TOML string with comments for None fields
+
+        Args:
+            data: Configuration dictionary
+            show_comments: Whether to show metadata comments
+            parent_path: Parent path for nested sections (e.g., "database.auth")
+
+        Returns:
+            TOML formatted string with comments
+        """
+        lines: list[str] = []
+
+        for section_name, section_data in data.items():
+            if not isinstance(section_data, dict):
+                continue
+
+            # Skip completely empty sections
+            if not section_data:
+                continue
+
+            # Build full section path
+            full_path = f"{parent_path}.{section_name}" if parent_path else section_name
+
+            # Section header
+            lines.append(f"[{full_path}]")
+
+            # Separate fields: valued / None / nested configs
+            valued_fields: dict[str, Any] = {}
+            none_info: list[tuple[str, dict[str, Any]]] = []
+            nested_configs: dict[str, Any] = {}
+
+            for key, value in section_data.items():
+                if value is None:
+                    # Get metadata immediately for None fields
+                    meta = self._get_field_metadata(full_path, key)
+                    none_info.append((key, meta))
+                elif self._is_nested_config(value):
+                    # Nested BaseConfig instance - handle separately
+                    nested_configs[key] = value
+                elif isinstance(value, dict):
+                    # Check if dict contains nested configs
+                    if any(self._is_nested_config(v) for v in value.values()):
+                        nested_configs[key] = value
+                    else:
+                        valued_fields[key] = value
+                else:
+                    valued_fields[key] = value
+
+            # 1. Process valued fields with tomlkit
+            if valued_fields:
+                valued_toml = tomlkit.dumps(valued_fields).strip()
+
+                # Add comments to each line if requested
+                for line in valued_toml.split("\n"):
+                    if "=" in line and not line.strip().startswith("#"):
+                        key = line.split("=")[0].strip()
+                        # Handle quoted keys
+                        key = key.strip('"').strip("'")
+
+                        if show_comments:
+                            meta = self._get_field_metadata(full_path, key)
+                            value = valued_fields.get(key)
+                            comment = self._format_field_comment(key, value, meta)
+                            lines.append(f"{line}  # {comment}")
+                        else:
+                            lines.append(line)
+                    else:
+                        lines.append(line)
+
+            # 2. Process None fields (commented placeholders)
+            if none_info:
+                if valued_fields:
+                    lines.append("")  # Blank line separator
+
+                for key, meta in none_info:
+                    placeholder = self._get_type_placeholder(meta["type"])
+
+                    if show_comments:
+                        comment = self._format_field_comment(key, None, meta)
+                        lines.append(f"# {key} = {placeholder}  # {comment}")
+                    else:
+                        lines.append(f"# {key} = {placeholder}")
+
+            lines.append("")  # Blank line after section
+
+            # 3. Recursively process nested configs
+            for nested_key, nested_value in nested_configs.items():
+                if self._is_nested_config(nested_value):
+                    # Single nested config
+                    nested_dict = nested_value.to_dict(
+                        global_section="",  # Don't include global in nested
+                        module_section=nested_key,
+                        include_none=True,
+                    )
+                    # Recursively generate
+                    nested_toml = self._dict_to_toml_with_comments(
+                        nested_dict, show_comments=show_comments, parent_path=full_path
+                    )
+                    lines.append(nested_toml)
+                elif isinstance(nested_value, dict):
+                    # Dict of nested configs (from merge)
+                    nested_toml = self._dict_to_toml_with_comments(
+                        {nested_key: nested_value},
+                        show_comments=show_comments,
+                        parent_path=full_path,
+                    )
+                    lines.append(nested_toml)
+
+        return "\n".join(lines)
+
     def to_toml(
         self,
         path: str | None = None,
         global_section: str = "global",
         module_section: str | None = None,
+        as_template: bool = False,
+        show_comments: bool = True,
         **kwargs,
     ) -> None:
         """
         Save configuration as a TOML file.
 
-        This method converts the configuration to a dictionary using to_dict() and
-        writes it to a TOML file. The file structure preserves global and module sections.
+        This method supports two modes:
+        - Standard mode: Saves only fields with values, using tomlkit
+        - Template mode: Includes None fields as commented placeholders with metadata
 
         Args:
             path: Output file path. If None, generates filename from class name (default: None)
             global_section: Name for the global section (default: "global")
             module_section: Name for the module section. If None, derived from class name (default: None)
-            **kwargs: Additional arguments passed to to_dict() (include_none, include_global_section)
+            as_template: Generate template with None fields as comments (default: False)
+            show_comments: Show metadata comments (type, scope, required, default) (default: True)
+            **kwargs: Additional arguments passed to to_dict()
 
         Raises:
             ValueError: If unable to write the TOML file
 
-        Example:
-            >>> config = MyConfig(host="localhost", port=8080)
+        Examples:
+            >>> # Standard save
             >>> config.to_toml("config.toml")
-            # Creates config.toml with [global] and [mymodule] sections
-        """
-        data_dict = self.to_dict(
-            global_section=global_section, module_section=module_section, **kwargs
-        )
 
+            >>> # Save with metadata comments
+            >>> config.to_toml("config.toml", show_comments=True)
+
+            >>> # Generate template
+            >>> config.to_toml("template.toml", as_template=True)
+
+            >>> # Generate template with full documentation
+            >>> config.to_toml("template.toml", as_template=True, show_comments=True)
+        """
         final_path: Path
         if path is None:
             # Automatically generate filename based on class name
@@ -743,16 +977,53 @@ class BaseConfig:
         # Ensure directory exists
         final_path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            with open(final_path, "w", encoding="utf-8") as f:
-                tomlkit.dump(data_dict, f)
-        except Exception as e:
-            raise ValueError(f"Unable to save TOML config to {path}: {e}")
+        if as_template:
+            # Template mode: manually generate with comments
+            data_dict = self.to_dict(
+                global_section=global_section,
+                module_section=module_section,
+                include_none=True,
+                **kwargs,
+            )
+            content = self._dict_to_toml_with_comments(
+                data_dict, show_comments=show_comments
+            )
+
+            try:
+                final_path.write_text(content, encoding="utf-8")
+            except Exception as e:
+                raise ValueError(f"Unable to save TOML config to {path}: {e}")
+        else:
+            # Standard mode: use tomlkit, skip None fields
+            data_dict = self.to_dict(
+                global_section=global_section,
+                module_section=module_section,
+                include_none=False,
+                **kwargs,
+            )
+
+            if show_comments:
+                # Add comments to standard output
+                content = self._dict_to_toml_with_comments(
+                    data_dict, show_comments=True
+                )
+                try:
+                    final_path.write_text(content, encoding="utf-8")
+                except Exception as e:
+                    raise ValueError(f"Unable to save TOML config to {path}: {e}")
+            else:
+                # No comments, pure tomlkit output
+                try:
+                    with open(final_path, "w", encoding="utf-8") as f:
+                        tomlkit.dump(data_dict, f)
+                except Exception as e:
+                    raise ValueError(f"Unable to save TOML config to {path}: {e}")
 
     def to_flat_toml(
         self,
         path: str | None = None,
         global_section: str = "global",
+        show_comments: bool = True,
         **kwargs,
     ) -> None:
         """
@@ -774,6 +1045,7 @@ class BaseConfig:
         Args:
             path: Output file path. If None, generates filename from class name
             global_section: Name of the global section (default: "global")
+            show_comments: Whether to add metadata comments to fields (default: True)
             **kwargs: Additional arguments passed to to_dict()
 
         Raises:
@@ -836,7 +1108,15 @@ class BaseConfig:
 
         try:
             with open(final_path, "w", encoding="utf-8") as f:
-                tomlkit.dump(flattened_dict, f)
+                if show_comments:
+                    # Use custom serialization with comments
+                    toml_str = self._dict_to_toml_with_comments(
+                        flattened_dict, show_comments=True, parent_path=""
+                    )
+                    f.write(toml_str)
+                else:
+                    # Use standard tomlkit serialization
+                    tomlkit.dump(flattened_dict, f)
         except Exception as e:
             raise ValueError(f"Unable to save flattened TOML config to {path}: {e}")
 
@@ -965,6 +1245,37 @@ class BaseConfig:
         return merged_instance
 
     @classmethod
+    def _instantiate_with_nested(cls, config_class: type["BaseConfig"]) -> "BaseConfig":
+        """
+        Recursively instantiate a config class and all its nested_param fields.
+
+        Args:
+            config_class: The BaseConfig subclass to instantiate
+
+        Returns:
+            An instance with all nested_param fields recursively instantiated
+        """
+        # Get all fields from the dataclass
+        class_fields = fields(config_class)
+        init_kwargs: dict[str, Any] = {}
+
+        for field in class_fields:
+            # Check if this is a nested_param field
+            metadata = field.metadata
+            if metadata.get("param_scope") == ParamScope.NESTED:
+                nested_class = metadata.get("nested_class")
+                if (
+                    nested_class
+                    and isinstance(nested_class, type)
+                    and issubclass(nested_class, BaseConfig)
+                ):
+                    # Recursively instantiate the nested class
+                    init_kwargs[field.name] = cls._instantiate_with_nested(nested_class)
+
+        # Create instance with nested fields
+        return config_class(**init_kwargs)  # type: ignore[return-value]
+
+    @classmethod
     def combine(
         cls,
         configs: dict[str, type[Self]] | list[type[Self]],
@@ -1016,10 +1327,10 @@ class BaseConfig:
                         f"All values must be BaseConfig subclasses, got {model_class} for key '{field_name}'"
                     )
 
-            # Create instances from each class, preserving field names
+            # Create instances from each class with recursive nested instantiation
             config_dict_instances: dict[str, Self] = {}
             for field_name, model_class in configs.items():
-                instance = model_class()  # type: ignore[misc]
+                instance = cls._instantiate_with_nested(model_class)
                 config_dict_instances[field_name] = instance  # type: ignore[assignment]
 
             # Use merge to combine all instances
@@ -1038,10 +1349,10 @@ class BaseConfig:
                         f"All arguments must be BaseConfig subclasses, got: {model_class}"
                     )
 
-            # Create instances from each class
+            # Create instances from each class with recursive nested instantiation
             config_list_instances: list[Self] = []
             for model_class in configs:
-                instance = model_class()  # type: ignore[misc]
+                instance = cls._instantiate_with_nested(model_class)
                 config_list_instances.append(instance)  # type: ignore[arg-type]
 
             # Use merge to combine all instances

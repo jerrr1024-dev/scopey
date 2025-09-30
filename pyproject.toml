@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scopey"
-version = "0.2.1"
+version = "0.2.2"
 description = "Scope Configuration for Python"
 authors = [{name = "C4C-Dev", email = "jerry.sy.bai@gmail.com"}]
 license-files = ["LICENSE"]

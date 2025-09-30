@@ -706,70 +706,70 @@ class BaseConfig:
 
         # Handle None type
         if type_hint is type(None):
-            return "None"
+            return 'None'
 
         # Handle simple types like str, int, bool, etc.
-        if hasattr(type_hint, "__name__"):
+        if hasattr(type_hint, '__name__'):
             return type_hint.__name__
 
         # Handle Union types (e.g., str | None, Optional[str])
-        if hasattr(type_hint, "__origin__"):
+        if hasattr(type_hint, '__origin__'):
             origin = type_hint.__origin__
 
             # For Union/Optional, extract the non-None type
             if origin is typing.Union:
-                args = getattr(type_hint, "__args__", ())
+                args = getattr(type_hint, '__args__', ())
                 # Filter out NoneType
                 non_none_types = [arg for arg in args if arg is not type(None)]
                 if non_none_types:
                     # Return the first non-None type
                     return self._get_type_name(non_none_types[0])
-                return "None"
+                return 'None'
 
             # For other generic types (list, dict, etc.)
-            return getattr(origin, "__name__", str(origin))
+            return getattr(origin, '__name__', str(origin))
 
         # Fallback: try to parse string representation
         type_str = str(type_hint)
 
         # Handle string annotations like 'str | None'
-        if "|" in type_str:
-            parts = type_str.split("|")
+        if '|' in type_str:
+            parts = type_str.split('|')
             for part in parts:
                 part = part.strip()
-                if part != "None" and part != "NoneType":
+                if part != 'None' and part != 'NoneType':
                     # Extract type name
-                    if part in ["str", "int", "float", "bool", "list", "dict"]:
+                    if part in ['str', 'int', 'float', 'bool', 'list', 'dict']:
                         return part
                     # Remove quotes if present
                     part = part.strip("'\"")
-                    if part in ["str", "int", "float", "bool", "list", "dict"]:
+                    if part in ['str', 'int', 'float', 'bool', 'list', 'dict']:
                         return part
 
         # Extract from string like "<class 'int'>" or "int"
-        if "int" in type_str.lower():
-            return "int"
-        elif "str" in type_str.lower():
-            return "str"
-        elif "bool" in type_str.lower():
-            return "bool"
-        elif "float" in type_str.lower():
-            return "float"
-        elif "list" in type_str.lower():
-            return "list"
-        elif "dict" in type_str.lower():
-            return "dict"
+        if 'int' in type_str.lower():
+            return 'int'
+        elif 'str' in type_str.lower():
+            return 'str'
+        elif 'bool' in type_str.lower():
+            return 'bool'
+        elif 'float' in type_str.lower():
+            return 'float'
+        elif 'list' in type_str.lower():
+            return 'list'
+        elif 'dict' in type_str.lower():
+            return 'dict'
 
-        return "str"  # Default fallback
+        return 'str'  # Default fallback
 
     def _get_type_placeholder(self, type_str: str) -> str:
         """Get placeholder value for a type"""
         type_map = {
-            "str": '""',
-            "int": "0",
-            "float": "0.0",
-            "bool": "false",
-            "list": "[]",
+            'str': '""',
+            'int': '0',
+            'float': '0.0',
+            'bool': 'false',
+            'list': '[]',
         }
         return type_map.get(type_str, '""')
 
@@ -789,7 +789,7 @@ class BaseConfig:
             Dict with 'type', 'scope', 'required' keys
         """
         # Parse path to find the correct config class
-        path_parts = [p for p in section_path.split(".") if p]  # Remove empty parts
+        path_parts = [p for p in section_path.split('.') if p]  # Remove empty parts
         current_class = self.__class__
         current_instance = self
 
@@ -800,7 +800,7 @@ class BaseConfig:
             # Try to find this part as a nested field in current class
             for f in fields(current_class):
                 if f.name.lower() == part.lower():
-                    nested_class = f.metadata.get("nested_class")
+                    nested_class = f.metadata.get('nested_class')
                     if nested_class:
                         # Found a nested config, update current class
                         current_class = nested_class
@@ -823,30 +823,19 @@ class BaseConfig:
         for f in fields(current_class):
             if f.name == field_name:
                 # Get the actual default value from field
-                default_val = (
-                    f.default
-                    if f.default is not MISSING
-                    else (
-                        f.default_factory()
-                        if f.default_factory is not MISSING
-                        else None
-                    )
+                default_val = f.default if f.default is not MISSING else (
+                    f.default_factory() if f.default_factory is not MISSING else None
                 )
 
                 return {
-                    "type": self._get_type_name(f.type),
-                    "scope": f.metadata.get("param_scope", ParamScope.LOCAL),
-                    "required": f.metadata.get("required", False),
-                    "default": default_val,
+                    'type': self._get_type_name(f.type),
+                    'scope': f.metadata.get('param_scope', ParamScope.LOCAL),
+                    'required': f.metadata.get('required', False),
+                    'default': default_val,
                 }
 
         # Default fallback
-        return {
-            "type": "str",
-            "scope": ParamScope.LOCAL,
-            "required": False,
-            "default": None,
-        }
+        return {'type': 'str', 'scope': ParamScope.LOCAL, 'required': False, 'default': None}
 
     def _format_field_comment(self, key: str, value: Any, meta: dict[str, Any]) -> str:
         """
@@ -863,24 +852,27 @@ class BaseConfig:
         parts = []
 
         # Type
-        parts.append(meta.get("type", "str"))
+        parts.append(meta.get('type', 'str'))
 
         # Scope
-        scope = meta.get("scope", ParamScope.LOCAL)
+        scope = meta.get('scope', ParamScope.LOCAL)
         parts.append(scope.name)
 
         # Required/Optional status (only for None fields)
         if value is None:
-            required = meta.get("required", False)
-            parts.append("required" if required else "optional")
+            required = meta.get('required', False)
+            parts.append('required' if required else 'optional')
         # Default value (only for non-None, non-empty fields)
         elif value not in (None, "", 0, False, []):
-            parts.append(f"default: {value}")
+            parts.append(f'default: {value}')
 
-        return " | ".join(parts)
+        return ' | '.join(parts)
 
     def _dict_to_toml_with_comments(
-        self, data: dict[str, Any], show_comments: bool = True, parent_path: str = ""
+        self,
+        data: dict[str, Any],
+        show_comments: bool = True,
+        parent_path: str = ""
     ) -> str:
         """
         Generate TOML string with comments for None fields
@@ -940,9 +932,9 @@ class BaseConfig:
                 valued_toml = tomlkit.dumps(valued_fields).strip()
 
                 # Add comments to each line if requested
-                for line in valued_toml.split("\n"):
-                    if "=" in line and not line.strip().startswith("#"):
-                        key = line.split("=")[0].strip()
+                for line in valued_toml.split('\n'):
+                    if '=' in line and not line.strip().startswith('#'):
+                        key = line.split('=')[0].strip()
                         # Handle quoted keys
                         key = key.strip('"').strip("'")
 
@@ -962,7 +954,7 @@ class BaseConfig:
                     lines.append("")  # Blank line separator
 
                 for key, meta in none_info:
-                    placeholder = self._get_type_placeholder(meta["type"])
+                    placeholder = self._get_type_placeholder(meta['type'])
 
                     if show_comments:
                         comment = self._format_field_comment(key, None, meta)
@@ -983,7 +975,9 @@ class BaseConfig:
                     )
                     # Recursively generate
                     nested_toml = self._dict_to_toml_with_comments(
-                        nested_dict, show_comments=show_comments, parent_path=full_path
+                        nested_dict,
+                        show_comments=show_comments,
+                        parent_path=full_path
                     )
                     lines.append(nested_toml)
                 elif isinstance(nested_value, dict):
@@ -991,11 +985,11 @@ class BaseConfig:
                     nested_toml = self._dict_to_toml_with_comments(
                         {nested_key: nested_value},
                         show_comments=show_comments,
-                        parent_path=full_path,
+                        parent_path=full_path
                     )
                     lines.append(nested_toml)
 
-        return "\n".join(lines)
+        return '\n'.join(lines)
 
     def to_toml(
         self,
@@ -1055,11 +1049,9 @@ class BaseConfig:
                 global_section=global_section,
                 module_section=module_section,
                 include_none=True,
-                **kwargs,
+                **kwargs
             )
-            content = self._dict_to_toml_with_comments(
-                data_dict, show_comments=show_comments
-            )
+            content = self._dict_to_toml_with_comments(data_dict, show_comments=show_comments)
 
             try:
                 final_path.write_text(content, encoding="utf-8")
@@ -1071,14 +1063,12 @@ class BaseConfig:
                 global_section=global_section,
                 module_section=module_section,
                 include_none=False,
-                **kwargs,
+                **kwargs
             )
 
             if show_comments:
                 # Add comments to standard output
-                content = self._dict_to_toml_with_comments(
-                    data_dict, show_comments=True
-                )
+                content = self._dict_to_toml_with_comments(data_dict, show_comments=True)
                 try:
                     final_path.write_text(content, encoding="utf-8")
                 except Exception as e:
@@ -1095,6 +1085,7 @@ class BaseConfig:
         self,
         path: str | None = None,
         global_section: str = "global",
+        as_template: bool = False,
         show_comments: bool = True,
         **kwargs,
     ) -> None:
@@ -1117,6 +1108,7 @@ class BaseConfig:
         Args:
             path: Output file path. If None, generates filename from class name
             global_section: Name of the global section (default: "global")
+            as_template: Generate template with None fields as comments (default: False)
             show_comments: Whether to add metadata comments to fields (default: True)
             **kwargs: Additional arguments passed to to_dict()
 
@@ -1137,6 +1129,7 @@ class BaseConfig:
         data_dict = self.to_dict(
             global_section=global_section,
             module_section=None,  # Let it use class name
+            include_none=as_template,  # Include None fields in template mode
             **kwargs,
         )
 
@@ -1336,11 +1329,7 @@ class BaseConfig:
             metadata = field.metadata
             if metadata.get("param_scope") == ParamScope.NESTED:
                 nested_class = metadata.get("nested_class")
-                if (
-                    nested_class
-                    and isinstance(nested_class, type)
-                    and issubclass(nested_class, BaseConfig)
-                ):
+                if nested_class and isinstance(nested_class, type) and issubclass(nested_class, BaseConfig):
                     # Recursively instantiate the nested class
                     init_kwargs[field.name] = cls._instantiate_with_nested(nested_class)
 

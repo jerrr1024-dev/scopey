@@ -1,6 +1,6 @@
 import copy
 import warnings
-from dataclasses import Field, dataclass, field, fields, make_dataclass
+from dataclasses import MISSING, Field, dataclass, field, fields, make_dataclass
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Self
@@ -702,28 +702,65 @@ class BaseConfig:
 
     def _get_type_name(self, type_hint: Any) -> str:
         """Extract type name from type hint"""
+        import typing
+
+        # Handle None type
+        if type_hint is type(None):
+            return "None"
+
+        # Handle simple types like str, int, bool, etc.
         if hasattr(type_hint, "__name__"):
             return type_hint.__name__
-        elif hasattr(type_hint, "__origin__"):
-            # Handle Optional, Union, etc.
+
+        # Handle Union types (e.g., str | None, Optional[str])
+        if hasattr(type_hint, "__origin__"):
             origin = type_hint.__origin__
-            if origin is type(None):
+
+            # For Union/Optional, extract the non-None type
+            if origin is typing.Union:
+                args = getattr(type_hint, "__args__", ())
+                # Filter out NoneType
+                non_none_types = [arg for arg in args if arg is not type(None)]
+                if non_none_types:
+                    # Return the first non-None type
+                    return self._get_type_name(non_none_types[0])
                 return "None"
-            return getattr(origin, "__name__", str(type_hint))
-        else:
-            type_str = str(type_hint)
-            # Extract from string like "<class 'int'>"
-            if "int" in type_str:
-                return "int"
-            elif "str" in type_str:
-                return "str"
-            elif "bool" in type_str:
-                return "bool"
-            elif "float" in type_str:
-                return "float"
-            elif "list" in type_str:
-                return "list"
-            return "str"  # Default fallback
+
+            # For other generic types (list, dict, etc.)
+            return getattr(origin, "__name__", str(origin))
+
+        # Fallback: try to parse string representation
+        type_str = str(type_hint)
+
+        # Handle string annotations like 'str | None'
+        if "|" in type_str:
+            parts = type_str.split("|")
+            for part in parts:
+                part = part.strip()
+                if part != "None" and part != "NoneType":
+                    # Extract type name
+                    if part in ["str", "int", "float", "bool", "list", "dict"]:
+                        return part
+                    # Remove quotes if present
+                    part = part.strip("'\"")
+                    if part in ["str", "int", "float", "bool", "list", "dict"]:
+                        return part
+
+        # Extract from string like "<class 'int'>" or "int"
+        if "int" in type_str.lower():
+            return "int"
+        elif "str" in type_str.lower():
+            return "str"
+        elif "bool" in type_str.lower():
+            return "bool"
+        elif "float" in type_str.lower():
+            return "float"
+        elif "list" in type_str.lower():
+            return "list"
+        elif "dict" in type_str.lower():
+            return "dict"
+
+        return "str"  # Default fallback
 
     def _get_type_placeholder(self, type_str: str) -> str:
         """Get placeholder value for a type"""
@@ -745,40 +782,71 @@ class BaseConfig:
         Get field metadata with support for nested paths
 
         Args:
-            section_path: Section path like "database" or "database.auth"
+            section_path: Section path like "database" or "combinedconfig.database" or "database.auth"
             field_name: Field name to look up
 
         Returns:
             Dict with 'type', 'scope', 'required' keys
         """
         # Parse path to find the correct config class
-        path_parts = section_path.split(".")
+        path_parts = [p for p in section_path.split(".") if p]  # Remove empty parts
         current_class = self.__class__
+        current_instance = self
 
-        # Navigate through nested structures
-        for part in path_parts[:-1]:
+        # Navigate through the path to find the target class
+        for i, part in enumerate(path_parts):
             found = False
+
+            # Try to find this part as a nested field in current class
             for f in fields(current_class):
-                if f.name == part:
+                if f.name.lower() == part.lower():
                     nested_class = f.metadata.get("nested_class")
                     if nested_class:
+                        # Found a nested config, update current class
                         current_class = nested_class
+
+                        # Try to get the actual instance if available
+                        if hasattr(current_instance, f.name):
+                            attr_value = getattr(current_instance, f.name)
+                            if isinstance(attr_value, BaseConfig):
+                                current_instance = attr_value
+
                         found = True
                         break
-            if not found:
-                break
 
-        # Find the field in current class
+            if not found:
+                # This part might be a generated section name (like "combinedconfig")
+                # Continue to next part
+                pass
+
+        # Now search for the field in the current class
         for f in fields(current_class):
             if f.name == field_name:
+                # Get the actual default value from field
+                default_val = (
+                    f.default
+                    if f.default is not MISSING
+                    else (
+                        f.default_factory()
+                        if f.default_factory is not MISSING
+                        else None
+                    )
+                )
+
                 return {
                     "type": self._get_type_name(f.type),
                     "scope": f.metadata.get("param_scope", ParamScope.LOCAL),
                     "required": f.metadata.get("required", False),
+                    "default": default_val,
                 }
 
         # Default fallback
-        return {"type": "str", "scope": ParamScope.LOCAL, "required": False}
+        return {
+            "type": "str",
+            "scope": ParamScope.LOCAL,
+            "required": False,
+            "default": None,
+        }
 
     def _format_field_comment(self, key: str, value: Any, meta: dict[str, Any]) -> str:
         """
@@ -855,8 +923,12 @@ class BaseConfig:
                     # Nested BaseConfig instance - handle separately
                     nested_configs[key] = value
                 elif isinstance(value, dict):
-                    # Check if dict contains nested configs
-                    if any(self._is_nested_config(v) for v in value.values()):
+                    # Check if dict contains nested configs or None values
+                    has_nested = any(self._is_nested_config(v) for v in value.values())
+                    has_none = any(v is None for v in value.values())
+
+                    if has_nested or has_none:
+                        # Handle as nested structure (recursively)
                         nested_configs[key] = value
                     else:
                         valued_fields[key] = value

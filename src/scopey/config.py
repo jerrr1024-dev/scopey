@@ -329,7 +329,7 @@ class BaseConfig:
             config_instances[section_name] = config_instance  # type: ignore[assignment]
 
         # Merge all instances into a single configuration
-        return cls.merge(config_instances, merged_name=class_name)
+        return cls.merge(config_instances, merged_name=merged_name)
 
     @classmethod
     def from_dict(

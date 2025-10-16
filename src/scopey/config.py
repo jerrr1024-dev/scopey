@@ -3,7 +3,20 @@ import warnings
 from dataclasses import MISSING, Field, dataclass, field, fields, make_dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Self
+from typing import (
+    Any,
+    Dict,
+    ForwardRef,
+    List,
+    Optional,
+    Self,
+    Set,
+    Tuple,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+)
 
 import tomlkit
 
@@ -195,7 +208,7 @@ class BaseConfig:
     @check_path(check_type="file", suffix="toml")  # check file path, must be toml
     def from_toml(
         cls,
-        path: str | Path,
+        path: Union[str, Path],
         module_section: str,
         global_section: str = "global",
         enable_default_override: bool = True,
@@ -208,11 +221,14 @@ class BaseConfig:
             path: Path to the TOML file (must have .toml extension)
             module_section: Name of the module-specific section in the TOML file
             global_section: Name of the global section (default: "global")
-            enable_default_override: Whether to allow TOML values to override field defaults (default: True)
-            warn_on_override: Whether to warn when priority-based parameter override occurs (default: True)
+            enable_default_override: Whether to allow TOML values to override
+                field defaults. Defaults to True.
+            warn_on_override: Whether to warn when priority-based parameter
+                override occurs. Defaults to True.
 
         Returns:
-            A new instance of the configuration class with values loaded from the TOML file
+            A new instance of the configuration class with values loaded from the
+            TOML file
 
         Raises:
             ValueError: If the file cannot be loaded or parsed
@@ -239,8 +255,8 @@ class BaseConfig:
     @check_path(check_type="file", suffix="toml")
     def from_flat_toml(
         cls,
-        path: str | Path,
-        sections: dict[str, type["BaseConfig"]],
+        path: Union[str, Path],
+        sections: Dict[str, Type["BaseConfig"]],
         global_section: str = "global",
         merged_name: str = "MergedConfig",
         enable_default_override: bool = True,
@@ -250,23 +266,27 @@ class BaseConfig:
         Create a merged configuration instance from a flat TOML file.
 
         This method is the inverse of to_flat_toml(). It reads a flat TOML structure
-        where multiple configurations are at the top level, instantiates each section
-        with its corresponding config class, and merges them into a single configuration.
+        where multiple configurations are at the top level. Each section is
+        instantiated with its matching config class, then merged into one
+        configuration.
 
         Args:
             path: Path to the flat TOML file (must have .toml extension)
-            sections: Dictionary mapping section names to their corresponding BaseConfig classes
-                     e.g., {"database": DatabaseConfig, "cache": CacheConfig}
+            sections: Mapping of section names to BaseConfig classes.
+                Example: {"database": DatabaseConfig, "cache": CacheConfig}
             global_section: Name of the global section (default: "global")
-            merged_name: Name for the dynamically created merged class (default: "MergedConfig")
-            enable_default_override: Whether to allow TOML values to override field defaults (default: True)
-            warn_on_override: Whether to warn when priority-based parameter override occurs (default: True)
+            merged_name: Name for the dynamically created merged class
+                (default: "MergedConfig")
+            enable_default_override: Whether to allow TOML values to override
+                field defaults. Defaults to True.
+            warn_on_override: Whether to warn when priority-based parameter
+                override occurs. Defaults to True.
 
         Returns:
             A merged configuration instance with _is_merged flag set to True
 
         Raises:
-            ValueError: If the file cannot be loaded or a specified section is not found
+            ValueError: If the file cannot be loaded or a specified section isn't found
             TypeError: If any section class is not a BaseConfig subclass
 
         Example:
@@ -292,7 +312,8 @@ class BaseConfig:
                 config_class, BaseConfig
             ):
                 raise TypeError(
-                    f"Section '{section_name}' must be a BaseConfig subclass, got: {config_class}"
+                    f"Section '{section_name}' must be a BaseConfig subclass, "
+                    f"got: {config_class}"
                 )
 
         try:
@@ -302,7 +323,7 @@ class BaseConfig:
             raise ValueError(f"Cannot load TOML config from {path}: {e}")
 
         # Instantiate each section with its corresponding class
-        config_instances: dict[str, Self] = {}
+        config_instances: Dict[str, Self] = {}
         for section_name, config_class in sections.items():
             if section_name not in toml_data:
                 raise ValueError(
@@ -326,7 +347,8 @@ class BaseConfig:
                 enable_default_override=enable_default_override,
                 warn_on_override=warn_on_override,
             )
-            config_instances[section_name] = config_instance  # type: ignore[assignment]
+            # type: ignore[assignment]
+            config_instances[section_name] = config_instance
 
         # Merge all instances into a single configuration
         return cls.merge(config_instances, merged_name=merged_name)
@@ -334,7 +356,7 @@ class BaseConfig:
     @classmethod
     def from_dict(
         cls,
-        data: dict[str, Any],
+        data: Dict[str, Any],
         module_section: str,
         global_section: str = "global",
         enable_default_override: bool = True,
@@ -343,18 +365,23 @@ class BaseConfig:
         """
         Create a configuration instance from a dictionary.
 
-        This method handles the complex logic of mapping dictionary data to configuration
-        fields based on their parameter scopes (GLOBAL, LOCAL, NESTED, etc.).
+        This method handles the complex logic of mapping dictionary data to
+        configuration fields based on their parameter scopes (GLOBAL, LOCAL,
+        NESTED, etc.).
 
         Args:
-            data: Dictionary containing configuration data, typically with global and module sections
+            data: Dictionary containing configuration data, typically with
+                global and module sections
             module_section: Name of the module-specific section to read from
             global_section: Name of the global section (default: "global")
-            enable_default_override: Whether to allow dict values to override field defaults (default: True)
-            warn_on_override: Whether to warn when priority-based parameter override occurs (default: True)
+            enable_default_override: Whether to allow dict values to override
+                field defaults. Defaults to True.
+            warn_on_override: Whether to warn when priority-based parameter
+                override occurs. Defaults to True.
 
         Returns:
-            A new instance of the configuration class populated with data from the dict
+            A new instance of the configuration class populated with data from
+            the dict
 
         Raises:
             TypeError: If data is not a dict
@@ -372,7 +399,8 @@ class BaseConfig:
 
         if module_section not in data:
             raise ValueError(
-                f"Can not find section '{module_section}' from available sections: {list(data.keys())}"
+                f"Can not find section '{module_section}' from available "
+                f"sections: {list(data.keys())}"
             )
 
         params = {}
@@ -383,7 +411,9 @@ class BaseConfig:
 
             if scope is None:
                 raise ValueError(
-                    f"Field '{field_name}' in {cls.__name__} must specify param_scope. Use global_param(), local_param(), nested_param(), etc."
+                    f"Field '{field_name}' in {cls.__name__} must specify "
+                    "param_scope. Use global_param(), local_param(), "
+                    "nested_param(), etc."
                 )
 
             if enable_default_override:  # overwirte default is available
@@ -414,21 +444,22 @@ class BaseConfig:
         # validate required params
         instance._validate_required_params()
         # Save original data
-        instance._raw_data = copy.deepcopy(data)  # type: ignore[assignment]
+        # type: ignore[assignment]
+        instance._raw_data = copy.deepcopy(data)
         return instance
 
     @classmethod
     def get_param_value(
         cls,
-        data: dict[str, Any],
+        data: Dict[str, Any],
         field_name: str,
         scope: ParamScope,
         global_section: str,
         module_section: str,
         warn_on_override: bool,
         required: bool = True,
-        nested_class: type["BaseConfig"] | None = None,
-    ) -> Any | None:
+        nested_class: Optional[Type["BaseConfig"]] = None,
+    ) -> Optional[Any]:
         """
         Extract a parameter value from configuration data based on its scope.
 
@@ -462,25 +493,30 @@ class BaseConfig:
         if scope == ParamScope.GLOBAL:
             if global_value is None and required:
                 raise ValueError(
-                    f"Parameter '{field_name}' is marked as GLOBAL and required, but not found in global section '{global_section}'"
+                    f"Parameter '{field_name}' is marked as GLOBAL and required, "
+                    f"but not found in global section '{global_section}'"
                 )
             if module_value is not None:
                 raise ValueError(
-                    f"Parameter '{field_name}' is marked as GLOBAL, cannot be set in local section '{module_section}'"
+                    f"Parameter '{field_name}' is marked as GLOBAL, cannot be set "
+                    f"in local section '{module_section}'"
                 )
             return global_value
         elif scope == ParamScope.LOCAL:
             if module_value is None and required:
                 raise ValueError(
-                    f"Parameter '{field_name}' is marked as LOCAL and required, but not found in local section '{module_section}'"
+                    f"Parameter '{field_name}' is marked as LOCAL and required, "
+                    f"but not found in local section '{module_section}'"
                 )
             if global_value is not None:
                 raise ValueError(
-                    f"Parameter '{field_name}' is marked as LOCAL, cannot be set in global section '{global_section}'"
+                    f"Parameter '{field_name}' is marked as LOCAL, cannot be set "
+                    f"in global section '{global_section}'"
                 )
             return module_value
         elif scope in [ParamScope.GLOBAL_FIRST, ParamScope.LOCAL_FIRST]:
-            # Handle priority logic: GLOBAL_FIRST prioritizes global, LOCAL_FIRST prioritizes local
+            # Handle priority logic: GLOBAL_FIRST prioritizes global, LOCAL_FIRST
+            # prioritizes local.
             is_global_first = scope == ParamScope.GLOBAL_FIRST
             primary_value, secondary_value = (
                 (global_value, module_value)
@@ -496,8 +532,11 @@ class BaseConfig:
             if primary_value is not None:
                 if secondary_value is not None and warn_on_override:
                     warnings.warn(
-                        f"Parameter '{field_name}' uses {primary_section} section value {primary_value}, "
-                        f"ignoring {secondary_section} section value {secondary_value}",
+                        (
+                            f"Parameter '{field_name}' uses {primary_section} "
+                            f"section value {primary_value}, ignoring "
+                            f"{secondary_section} section value {secondary_value}"
+                        ),
                         UserWarning,
                     )
                 return primary_value
@@ -506,8 +545,9 @@ class BaseConfig:
             elif required:
                 scope_name = "GLOBAL_FIRST" if is_global_first else "LOCAL_FIRST"
                 raise ValueError(
-                    f"Parameter '{field_name}' is marked as {scope_name} and required, "
-                    f"but not found in either global section '{global_section}' or local section '{module_section}'"
+                    f"Parameter '{field_name}' is marked as {scope_name} and "
+                    "required, but not found in either global section "
+                    f"'{global_section}' or local section '{module_section}'"
                 )
             return None
         elif scope == ParamScope.NESTED:
@@ -518,7 +558,8 @@ class BaseConfig:
             if nested_data is None:
                 if required:
                     raise ValueError(
-                        f"Nested parameter '{field_name}' is required, but not found in section '{module_section}'"
+                        f"Nested parameter '{field_name}' is required, but not "
+                        f"found in section '{module_section}'"
                     )
                 return None
 
@@ -527,14 +568,15 @@ class BaseConfig:
                     f"Nested parameter '{field_name}' missing nested_class"
                 )
 
-            # Create temporary data structure for nested class use
-            # nested_data should be treated as the module section content for nested class
+            # Create temporary data structure for nested class use.
+            # Treat nested_data as the module section content for the nested class.
             if not isinstance(nested_data, dict):
                 raise TypeError(
-                    f"Nested section '{module_section}.{field_name}' must be a dict, got {type(nested_data)}"
+                    f"Nested section '{module_section}.{field_name}' must be a "
+                    f"dict, got {type(nested_data)}"
                 )
 
-            tmp_data: dict[str, Any] = {field_name: nested_data}
+            tmp_data: Dict[str, Any] = {field_name: nested_data}
             if global_section in data:
                 tmp_data[global_section] = data[global_section]
 
@@ -553,9 +595,9 @@ class BaseConfig:
         """
         Validate that all required parameters have non-None values.
 
-        This method is called automatically during instance creation via from_dict()
-        and from_toml(). It checks all fields marked as required=True and ensures
-        they have been assigned a value.
+        This method is called automatically during instance creation via
+        from_dict() and from_toml(). It checks every field marked
+        required=True and ensures it has been assigned a value.
 
         Raises:
             ValueError: If any required parameter is None
@@ -578,8 +620,8 @@ class BaseConfig:
         Override this method in your configuration subclass to implement custom
         validation logic beyond the automatic required parameter checking.
 
-        This method is called automatically during instance initialization in __post_init__,
-        after _raw_data and _is_merged are initialized.
+        This method is called automatically during instance initialization in
+        __post_init__, after _raw_data and _is_merged are initialized.
 
         Example:
             >>> class MyConfig(BaseConfig):
@@ -591,44 +633,88 @@ class BaseConfig:
         """
         pass
 
+    @dataclass
+    class _GlobalParamConflictTracker:
+        active: bool
+        owner: "BaseConfig"
+        registry: Dict[str, Dict[str, str]] = field(default_factory=dict)
+
+        def register(
+            self, param_name: str, metadata: Dict[str, Any], source: str
+        ) -> None:
+            if not self.active:
+                return
+
+            param_type = metadata.get("type", "str")
+            existing = self.registry.get(param_name)
+
+            if existing:
+                if not self.owner._is_type_compatible(existing["type"], param_type):
+                    raise ValueError(
+                        f"Global parameter '{param_name}' has conflicting type "
+                        "definitions:\n"
+                        f"  - In '{existing['source']}': type={existing['type']}\n"
+                        f"  - In '{source}': type={param_type}\n"
+                        "Please ensure all configs define the same global "
+                        "parameters with compatible types."
+                    )
+            else:
+                self.registry[param_name] = {"type": param_type, "source": source}
+
     def to_dict(
         self,
         global_section: str = "global",
-        module_section: str | None = None,
+        module_section: Optional[str] = None,
         include_none: bool = True,
         include_global_section: bool = True,
-    ) -> dict[str, Any]:
+        include_metadata: bool = False,
+    ) -> Dict[str, Any]:
         """
         Convert configuration instance to a dictionary representation.
 
-        This method creates a structured dictionary with separate global and module sections,
-        respecting parameter scopes and handling nested configurations recursively.
+        This method creates a structured dictionary with separate global and
+        module sections, respecting parameter scopes and handling nested
+        configurations recursively.
 
         Args:
             global_section: Name for the global section (default: "global")
-            module_section: Name for the module section. If None, derived from class name (default: None)
+            module_section: Name for the module section. If None, derived from
+                class name (default: None)
             include_none: Whether to include fields with None values (default: True)
-            include_global_section: Whether to include global section in output (default: True)
+            include_global_section: Whether to include global section in output
+                (default: True)
+            include_metadata: Whether to include field metadata (type, scope,
+                etc.) (default: False)
 
         Returns:
             Dictionary with structure: {global_section: {...}, module_section: {...}}
+
+            When include_metadata=True, each field value is wrapped as:
+            {field_name: {"_value": value, "_metadata": {...}}}
 
         Example:
             >>> config = MyConfig(host="localhost", port=8080)
             >>> config.to_dict()
             {'global': {'host': 'localhost'}, 'mymodule': {'port': 8080}}
+
+            >>> config.to_dict(include_metadata=True)
+            {'global': {'host': {'_value': 'localhost', '_metadata': {...}}}, ...}
         """
 
         if module_section is None:
             module_section = self.__class__.__name__.lower().replace("config", "")
 
-        result: dict[str, Any] = {}
+        result: Dict[str, Any] = {}
 
         # Decide whether to create global section based on parameter
         if include_global_section:
             result[global_section] = {}
 
         result[module_section] = {}
+
+        conflict_tracker = self._GlobalParamConflictTracker(
+            active=getattr(self, "_is_merged", False) and include_metadata, owner=self
+        )
 
         for f in fields(self):
             field_name = f.name
@@ -639,24 +725,57 @@ class BaseConfig:
             if field_value is None and not include_none:
                 continue
 
+            # Prepare metadata if requested
+            if include_metadata:
+                # Get default value from field
+                default_val = (
+                    f.default
+                    if f.default is not MISSING
+                    else (
+                        f.default_factory()
+                        if f.default_factory is not MISSING
+                        else None
+                    )
+                )
+
+                field_metadata = {
+                    "type": self._get_type_name(f.type),
+                    "scope": scope,
+                    "required": f.metadata.get("required", False),
+                    "default": default_val,
+                }
+
             if scope in [ParamScope.GLOBAL, ParamScope.GLOBAL_FIRST]:
                 if global_section not in result:
                     result[global_section] = {}
-                result[global_section][field_name] = field_value
+                if include_metadata:
+                    result[global_section][field_name] = {
+                        "_value": field_value,
+                        "_metadata": field_metadata,
+                    }
+                else:
+                    result[global_section][field_name] = field_value
             elif scope in [ParamScope.LOCAL, ParamScope.LOCAL_FIRST]:
-                result[module_section][field_name] = field_value
+                if include_metadata:
+                    result[module_section][field_name] = {
+                        "_value": field_value,
+                        "_metadata": field_metadata,
+                    }
+                else:
+                    result[module_section][field_name] = field_value
             elif scope == ParamScope.NESTED:
                 # Determine the nested config instance to process
                 nested_config = field_value
 
                 if field_value is None:
-                    # When nested field is None, create a default instance with all parameters
+                    # If the nested field is None, create a default instance.
                     # Get the nested class directly from field metadata
                     nested_class = f.metadata.get("nested_class")
 
                     if nested_class is None:
                         raise ValueError(
-                            f"Nested field '{field_name}' is missing nested_class in metadata"
+                            f"Nested field '{field_name}' is missing "
+                            "nested_class in metadata"
                         )
 
                     # Create default instance of nested class
@@ -664,20 +783,35 @@ class BaseConfig:
                 else:
                     if not isinstance(field_value, BaseConfig):
                         raise TypeError(
-                            f"Nested field '{field_name}' must be an instance of BaseConfig, "
-                            f"got {type(field_value)} instead"
+                            f"Nested field '{field_name}' must be an instance "
+                            f"of BaseConfig, got {type(field_value)} instead"
                         )
 
-                # Common processing: Get dictionary representation of nested configuration
+                # Convert nested configuration to dictionary representation
                 nested_dict = nested_config.to_dict(
                     global_section=global_section,
                     module_section=field_name,  # Use field name as nested section name
                     include_none=include_none,
                     include_global_section=include_global_section,
+                    include_metadata=include_metadata,  # Propagate metadata flag
                 )
 
                 # Handle global section merging
                 if global_section in nested_dict and nested_dict[global_section]:
+                    if include_metadata:
+                        for param_name, param_data in nested_dict[
+                            global_section
+                        ].items():
+                            if (
+                                isinstance(param_data, dict)
+                                and "_metadata" in param_data
+                            ):
+                                conflict_tracker.register(
+                                    param_name,
+                                    param_data["_metadata"],
+                                    source=field_name,
+                                )
+
                     # Merge global section content
                     result[global_section].update(nested_dict[global_section])
 
@@ -702,65 +836,51 @@ class BaseConfig:
 
     def _get_type_name(self, type_hint: Any) -> str:
         """Extract type name from type hint"""
-        import typing
-
-        # Handle None type
-        if type_hint is type(None):
+        if type_hint is None or type_hint is type(None):
             return "None"
 
-        # Handle simple types like str, int, bool, etc.
-        if hasattr(type_hint, "__name__"):
-            return type_hint.__name__
+        origin = get_origin(type_hint)
+        if origin is None:
+            if isinstance(type_hint, ForwardRef):
+                return type_hint.__forward_arg__.split(".")[-1]
 
-        # Handle Union types (e.g., str | None, Optional[str])
-        if hasattr(type_hint, "__origin__"):
-            origin = type_hint.__origin__
+            if isinstance(type_hint, str):
+                # Forward reference stored as string literal
+                return type_hint.split(".")[-1].strip("'\"")
 
-            # For Union/Optional, extract the non-None type
-            if origin is typing.Union:
-                args = getattr(type_hint, "__args__", ())
-                # Filter out NoneType
-                non_none_types = [arg for arg in args if arg is not type(None)]
-                if non_none_types:
-                    # Return the first non-None type
-                    return self._get_type_name(non_none_types[0])
-                return "None"
+            if isinstance(type_hint, type):
+                return type_hint.__name__
 
-            # For other generic types (list, dict, etc.)
-            return getattr(origin, "__name__", str(origin))
+            # Fallback to string representation
+            type_str = str(type_hint).strip("'\"")
+            if "." in type_str:
+                type_str = type_str.split(".")[-1]
+            return type_str
 
-        # Fallback: try to parse string representation
-        type_str = str(type_hint)
+        if origin is Union:
+            args = [arg for arg in get_args(type_hint) if arg is not type(None)]
+            if args:
+                return self._get_type_name(args[0])
+            return "None"
 
-        # Handle string annotations like 'str | None'
-        if "|" in type_str:
-            parts = type_str.split("|")
-            for part in parts:
-                part = part.strip()
-                if part != "None" and part != "NoneType":
-                    # Extract type name
-                    if part in ["str", "int", "float", "bool", "list", "dict"]:
-                        return part
-                    # Remove quotes if present
-                    part = part.strip("'\"")
-                    if part in ["str", "int", "float", "bool", "list", "dict"]:
-                        return part
-
-        # Extract from string like "<class 'int'>" or "int"
-        if "int" in type_str.lower():
-            return "int"
-        elif "str" in type_str.lower():
-            return "str"
-        elif "bool" in type_str.lower():
-            return "bool"
-        elif "float" in type_str.lower():
-            return "float"
-        elif "list" in type_str.lower():
+        if origin in (list, List):
             return "list"
-        elif "dict" in type_str.lower():
+        if origin in (dict, Dict):
             return "dict"
+        if origin in (tuple, Tuple):
+            return "tuple"
+        if origin in (set, Set):
+            return "set"
+        if getattr(origin, "__qualname__", "") == "Annotated":
+            annotated_args = get_args(type_hint)
+            if annotated_args:
+                return self._get_type_name(annotated_args[0])
 
-        return "str"  # Default fallback
+        origin_name = getattr(origin, "__name__", None)
+        if origin_name:
+            return origin_name
+
+        return str(origin)
 
     def _get_type_placeholder(self, type_str: str) -> str:
         """Get placeholder value for a type"""
@@ -777,12 +897,140 @@ class BaseConfig:
         """Check if a value is a nested config (BaseConfig instance)"""
         return isinstance(value, BaseConfig)
 
-    def _get_field_metadata(self, section_path: str, field_name: str) -> dict[str, Any]:
+    def _contains_metadata_dict(
+        self, value: Any, memo: Optional[Dict[int, bool]] = None
+    ) -> bool:
+        """
+        Detect metadata placeholder dictionaries of the form
+        {'_value': ..., '_metadata': ...}. We treat any dict containing this shape
+        (including nested occurrences) as metadata so it won't be serialized
+        directly by tomlkit.
+        """
+        if not isinstance(value, dict):
+            return False
+
+        if memo is None:
+            memo = {}
+
+        key = id(value)
+        if key in memo:
+            return memo[key]
+
+        if "_value" in value and "_metadata" in value:
+            memo[key] = True
+            return True
+
+        for child in value.values():
+            if isinstance(child, dict) and self._contains_metadata_dict(child, memo):
+                memo[key] = True
+                return True
+
+        memo[key] = False
+        return False
+
+    def _split_section_entries(
+        self, section_data: Dict[str, Any], section_path: str
+    ) -> Tuple[
+        Dict[str, Any],
+        Dict[str, Dict[str, Any]],
+        List[Tuple[str, Dict[str, Any]]],
+        Dict[str, Any],
+    ]:
+        """
+        Split section entries into valued, None, and nested categories while
+        preserving metadata.
+
+        Args:
+            section_data: Section dictionary produced by to_dict()
+            section_path: Dotted path for metadata lookups (e.g., "app.database")
+
+        Returns:
+            A tuple of (plain_values, metadata_cache, none_entries,
+            nested_entries)
+        """
+        plain_values: Dict[str, Any] = {}
+        metadata_cache: Dict[str, Dict[str, Any]] = {}
+        none_entries: List[Tuple[str, Dict[str, Any]]] = []
+        nested_entries: Dict[str, Any] = {}
+        metadata_presence: Dict[int, bool] = {}
+
+        for key, value in section_data.items():
+            if isinstance(value, dict) and "_value" in value and "_metadata" in value:
+                actual_value = value["_value"]
+                meta = value["_metadata"]
+
+                if actual_value is None:
+                    none_entries.append((key, meta))
+                elif self._is_nested_config(actual_value):
+                    nested_entries[key] = actual_value
+                elif isinstance(actual_value, dict):
+                    has_nested = False
+                    has_none = False
+                    for child in actual_value.values():
+                        if not has_nested and self._is_nested_config(child):
+                            has_nested = True
+                        if not has_none and child is None:
+                            has_none = True
+                        if has_nested and has_none:
+                            break
+                    has_metadata = self._contains_metadata_dict(
+                        actual_value, metadata_presence
+                    )
+
+                    if has_nested or has_none or has_metadata:
+                        nested_entries[key] = actual_value
+                    else:
+                        plain_values[key] = actual_value
+                        metadata_cache[key] = meta
+                else:
+                    plain_values[key] = actual_value
+                    metadata_cache[key] = meta
+            elif value is None:
+                meta = self._get_field_metadata(section_path, key)
+                none_entries.append((key, meta))
+            elif self._is_nested_config(value):
+                nested_entries[key] = value
+            elif isinstance(value, dict):
+                has_nested = False
+                has_none = False
+                for child in value.values():
+                    if not has_nested and self._is_nested_config(child):
+                        has_nested = True
+                    if not has_none and child is None:
+                        has_none = True
+                    if has_nested and has_none:
+                        break
+                has_metadata = self._contains_metadata_dict(value, metadata_presence)
+
+                if has_nested or has_none or has_metadata:
+                    nested_entries[key] = value
+                else:
+                    plain_values[key] = value
+            else:
+                plain_values[key] = value
+
+        return plain_values, metadata_cache, none_entries, nested_entries
+
+    def _is_type_compatible(self, type1: str, type2: str) -> bool:
+        """
+        Check if two type strings are compatible.
+
+        Args:
+            type1: First type string (e.g., "int", "float", "str")
+            type2: Second type string
+
+        Returns:
+            True if types are the same, False otherwise
+        """
+        return type1 == type2
+
+    def _get_field_metadata(self, section_path: str, field_name: str) -> Dict[str, Any]:
         """
         Get field metadata with support for nested paths
 
         Args:
-            section_path: Section path like "database" or "combinedconfig.database" or "database.auth"
+            section_path: Section path such as "database",
+                "combinedconfig.database", or "database.auth"
             field_name: Field name to look up
 
         Returns:
@@ -833,12 +1081,12 @@ class BaseConfig:
                     )
                 )
 
-                return {
-                    "type": self._get_type_name(f.type),
-                    "scope": f.metadata.get("param_scope", ParamScope.LOCAL),
-                    "required": f.metadata.get("required", False),
-                    "default": default_val,
-                }
+        return {
+            "type": self._get_type_name(f.type),
+            "scope": f.metadata.get("param_scope", ParamScope.LOCAL),
+            "required": f.metadata.get("required", False),
+            "default": default_val,
+        }
 
         # Default fallback
         return {
@@ -848,7 +1096,7 @@ class BaseConfig:
             "default": None,
         }
 
-    def _format_field_comment(self, key: str, value: Any, meta: dict[str, Any]) -> str:
+    def _format_field_comment(self, key: str, value: Any, meta: Dict[str, Any]) -> str:
         """
         Format field comment: type | scope | [required/optional] | [default: value]
 
@@ -860,7 +1108,7 @@ class BaseConfig:
         Returns:
             Formatted comment string
         """
-        parts = []
+        parts: List[str] = []
 
         # Type
         parts.append(meta.get("type", "str"))
@@ -879,21 +1127,133 @@ class BaseConfig:
 
         return " | ".join(parts)
 
+    def _render_plain_field_lines(
+        self,
+        plain_fields: Dict[str, Any],
+        metadata_cache: Dict[str, Dict[str, Any]],
+        full_path: str,
+        show_comments: bool,
+    ) -> List[str]:
+        if not plain_fields:
+            return []
+
+        rendered_lines: List[str] = []
+        valued_toml = tomlkit.dumps(plain_fields).strip()
+
+        for line in valued_toml.split("\n"):
+            if "=" in line and not line.strip().startswith("#"):
+                key = line.split("=")[0].strip().strip('"').strip("'")
+
+                if show_comments:
+                    meta = metadata_cache.get(key)
+                    if meta is None:
+                        meta = self._get_field_metadata(full_path, key)
+
+                    actual_value = plain_fields.get(key)
+                    comment = self._format_field_comment(key, actual_value, meta)
+                    rendered_lines.append(f"{line}  # {comment}")
+                else:
+                    rendered_lines.append(line)
+            else:
+                rendered_lines.append(line)
+
+        return rendered_lines
+
+    def _render_none_placeholder_lines(
+        self,
+        none_info: List[Tuple[str, Dict[str, Any]]],
+        show_comments: bool,
+        prepend_blank: bool,
+    ) -> List[str]:
+        if not none_info:
+            return []
+
+        lines: List[str] = []
+        if prepend_blank:
+            lines.append("")
+
+        for key, meta in none_info:
+            placeholder = self._get_type_placeholder(meta["type"])
+
+            if show_comments:
+                comment = self._format_field_comment(key, None, meta)
+                lines.append(f"# {key} = {placeholder}  # {comment}")
+            else:
+                lines.append(f"# {key} = {placeholder}")
+
+        return lines
+
+    def _render_nested_sections(
+        self,
+        nested_configs: Dict[str, Any],
+        full_path: str,
+        show_comments: bool,
+    ) -> List[str]:
+        rendered: List[str] = []
+
+        for nested_key, nested_value in nested_configs.items():
+            if self._is_nested_config(nested_value):
+                nested_dict = nested_value.to_dict(
+                    global_section="",
+                    module_section=nested_key,
+                    include_none=True,
+                    include_metadata=True,
+                )
+                rendered.append(
+                    self._dict_to_toml_with_comments(
+                        nested_dict, show_comments=show_comments, parent_path=full_path
+                    )
+                )
+            elif isinstance(nested_value, dict):
+                rendered.append(
+                    self._dict_to_toml_with_comments(
+                        {nested_key: nested_value},
+                        show_comments=show_comments,
+                        parent_path=full_path,
+                    )
+                )
+
+        return rendered
+
+    def _render_section_lines(
+        self,
+        full_path: str,
+        plain_fields: Dict[str, Any],
+        metadata_cache: Dict[str, Dict[str, Any]],
+        none_info: List[Tuple[str, Dict[str, Any]]],
+        show_comments: bool,
+    ) -> List[str]:
+        section_lines: List[str] = [f"[{full_path}]"]
+
+        plain_lines = self._render_plain_field_lines(
+            plain_fields, metadata_cache, full_path, show_comments
+        )
+        section_lines.extend(plain_lines)
+
+        none_lines = self._render_none_placeholder_lines(
+            none_info, show_comments, prepend_blank=bool(plain_lines)
+        )
+        section_lines.extend(none_lines)
+
+        section_lines.append("")
+        return section_lines
+
     def _dict_to_toml_with_comments(
-        self, data: dict[str, Any], show_comments: bool = True, parent_path: str = ""
+        self, data: Dict[str, Any], show_comments: bool = True, parent_path: str = ""
     ) -> str:
         """
-        Generate TOML string with comments for None fields
+        Generate a TOML string with comments for None fields.
 
         Args:
-            data: Configuration dictionary
-            show_comments: Whether to show metadata comments
+            data: Configuration dictionary that may include metadata produced by
+                to_dict(include_metadata=True)
+            show_comments: Whether to include metadata comments
             parent_path: Parent path for nested sections (e.g., "database.auth")
 
         Returns:
             TOML formatted string with comments
         """
-        lines: list[str] = []
+        lines: List[str] = []
 
         for section_name, section_data in data.items():
             if not isinstance(section_data, dict):
@@ -904,104 +1264,42 @@ class BaseConfig:
                 continue
 
             # Build full section path
-            full_path = f"{parent_path}.{section_name}" if parent_path else section_name
-
-            # Section header
-            lines.append(f"[{full_path}]")
+            if parent_path:
+                full_path = f"{parent_path}.{section_name}"
+            else:
+                full_path = section_name
 
             # Separate fields: valued / None / nested configs
-            valued_fields: dict[str, Any] = {}
-            none_info: list[tuple[str, dict[str, Any]]] = []
-            nested_configs: dict[str, Any] = {}
+            (
+                plain_valued_fields,
+                metadata_cache,
+                none_info,
+                nested_configs,
+            ) = self._split_section_entries(section_data, full_path)
 
-            for key, value in section_data.items():
-                if value is None:
-                    # Get metadata immediately for None fields
-                    meta = self._get_field_metadata(full_path, key)
-                    none_info.append((key, meta))
-                elif self._is_nested_config(value):
-                    # Nested BaseConfig instance - handle separately
-                    nested_configs[key] = value
-                elif isinstance(value, dict):
-                    # Check if dict contains nested configs or None values
-                    has_nested = any(self._is_nested_config(v) for v in value.values())
-                    has_none = any(v is None for v in value.values())
+            lines.extend(
+                self._render_section_lines(
+                    full_path,
+                    plain_valued_fields,
+                    metadata_cache,
+                    none_info,
+                    show_comments,
+                )
+            )
 
-                    if has_nested or has_none:
-                        # Handle as nested structure (recursively)
-                        nested_configs[key] = value
-                    else:
-                        valued_fields[key] = value
-                else:
-                    valued_fields[key] = value
-
-            # 1. Process valued fields with tomlkit
-            if valued_fields:
-                valued_toml = tomlkit.dumps(valued_fields).strip()
-
-                # Add comments to each line if requested
-                for line in valued_toml.split("\n"):
-                    if "=" in line and not line.strip().startswith("#"):
-                        key = line.split("=")[0].strip()
-                        # Handle quoted keys
-                        key = key.strip('"').strip("'")
-
-                        if show_comments:
-                            meta = self._get_field_metadata(full_path, key)
-                            value = valued_fields.get(key)
-                            comment = self._format_field_comment(key, value, meta)
-                            lines.append(f"{line}  # {comment}")
-                        else:
-                            lines.append(line)
-                    else:
-                        lines.append(line)
-
-            # 2. Process None fields (commented placeholders)
-            if none_info:
-                if valued_fields:
-                    lines.append("")  # Blank line separator
-
-                for key, meta in none_info:
-                    placeholder = self._get_type_placeholder(meta["type"])
-
-                    if show_comments:
-                        comment = self._format_field_comment(key, None, meta)
-                        lines.append(f"# {key} = {placeholder}  # {comment}")
-                    else:
-                        lines.append(f"# {key} = {placeholder}")
-
-            lines.append("")  # Blank line after section
-
-            # 3. Recursively process nested configs
-            for nested_key, nested_value in nested_configs.items():
-                if self._is_nested_config(nested_value):
-                    # Single nested config
-                    nested_dict = nested_value.to_dict(
-                        global_section="",  # Don't include global in nested
-                        module_section=nested_key,
-                        include_none=True,
-                    )
-                    # Recursively generate
-                    nested_toml = self._dict_to_toml_with_comments(
-                        nested_dict, show_comments=show_comments, parent_path=full_path
-                    )
-                    lines.append(nested_toml)
-                elif isinstance(nested_value, dict):
-                    # Dict of nested configs (from merge)
-                    nested_toml = self._dict_to_toml_with_comments(
-                        {nested_key: nested_value},
-                        show_comments=show_comments,
-                        parent_path=full_path,
-                    )
-                    lines.append(nested_toml)
+            lines.extend(
+                self._render_nested_sections(
+                    nested_configs, full_path=full_path, show_comments=show_comments
+                )
+            )
 
         return "\n".join(lines)
 
     def to_toml(
         self,
-        path: str | None = None,
+        path: Optional[str] = None,
         global_section: str = "global",
-        module_section: str | None = None,
+        module_section: Optional[str] = None,
         as_template: bool = False,
         show_comments: bool = True,
         **kwargs,
@@ -1014,11 +1312,15 @@ class BaseConfig:
         - Template mode: Includes None fields as commented placeholders with metadata
 
         Args:
-            path: Output file path. If None, generates filename from class name (default: None)
+            path: Output file path. If None, generates filename from class name
+                (default: None)
             global_section: Name for the global section (default: "global")
-            module_section: Name for the module section. If None, derived from class name (default: None)
-            as_template: Generate template with None fields as comments (default: False)
-            show_comments: Show metadata comments (type, scope, required, default) (default: True)
+            module_section: Name for the module section. If None, derived from
+                class name (default: None)
+            as_template: Generate template with None fields as comments
+                (default: False)
+            show_comments: Show metadata comments (type, scope, required,
+                default) (default: True)
             **kwargs: Additional arguments passed to to_dict()
 
         Raises:
@@ -1055,6 +1357,7 @@ class BaseConfig:
                 global_section=global_section,
                 module_section=module_section,
                 include_none=True,
+                include_metadata=show_comments,  # Mirror comment flag
                 **kwargs,
             )
             content = self._dict_to_toml_with_comments(
@@ -1071,6 +1374,7 @@ class BaseConfig:
                 global_section=global_section,
                 module_section=module_section,
                 include_none=False,
+                include_metadata=show_comments,  # Mirror comment flag
                 **kwargs,
             )
 
@@ -1093,7 +1397,7 @@ class BaseConfig:
 
     def to_flat_toml(
         self,
-        path: str | None = None,
+        path: Optional[str] = None,
         global_section: str = "global",
         as_template: bool = False,
         show_comments: bool = True,
@@ -1102,9 +1406,9 @@ class BaseConfig:
         """
         Save configuration as a flattened TOML file.
 
-        This method is designed for merged configurations created by the merge() or combine()
-        methods. It flattens the top-level nested structure, promoting nested config sections
-        to the top level.
+        This method is designed for merged configurations created by the
+        merge() or combine() methods. It flattens the top-level nested
+        structure, promoting nested config sections to the top level.
 
         For example, a merged config with structure:
             [mergedconfig]
@@ -1118,8 +1422,10 @@ class BaseConfig:
         Args:
             path: Output file path. If None, generates filename from class name
             global_section: Name of the global section (default: "global")
-            as_template: Generate template with None fields as comments (default: False)
-            show_comments: Whether to add metadata comments to fields (default: True)
+            as_template: Generate template with None fields as comments
+                (default: False)
+            show_comments: Whether to add metadata comments to fields
+                (default: True)
             **kwargs: Additional arguments passed to to_dict()
 
         Raises:
@@ -1131,8 +1437,9 @@ class BaseConfig:
         """
         if not getattr(self, "_is_merged", False):
             raise ValueError(
-                "to_flat_toml() can only be used on merged configurations created by "
-                "merge() or combine() methods. For regular configs, use to_toml() instead."
+                "to_flat_toml() can only be used on merged configurations created "
+                "by merge() or combine() methods. For regular configs, use "
+                "to_toml() instead."
             )
 
         # Get the full nested structure
@@ -1140,11 +1447,12 @@ class BaseConfig:
             global_section=global_section,
             module_section=None,  # Let it use class name
             include_none=as_template,  # Include None fields in template mode
+            include_metadata=show_comments,  # Mirror comment flag
             **kwargs,
         )
 
         # Flatten: extract nested configs and promote them to top level
-        flattened_dict: dict[str, Any] = {}
+        flattened_dict: Dict[str, Any] = {}
 
         # First, copy the global section if it exists
         if global_section in data_dict:
@@ -1164,7 +1472,7 @@ class BaseConfig:
                     # This is a nested config, promote it to top level
                     flattened_dict[nested_key] = nested_value
                 else:
-                    # This is a direct field (shouldn't happen in merged configs, but handle it)
+                    # Direct field (unexpected in merged configs), keep it nested
                     if wrapper_section not in flattened_dict:
                         flattened_dict[wrapper_section] = {}
                     flattened_dict[wrapper_section][nested_key] = nested_value
@@ -1197,26 +1505,31 @@ class BaseConfig:
 
     @classmethod
     def merge(
-        cls, configs: dict[str, Self] | list[Self], merged_name: str = "MergedConfig"
+        cls,
+        configs: Union[Dict[str, Self], List[Self]],
+        merged_name: str = "MergedConfig",
     ) -> Self:
         """
-        Merge multiple configuration instances into a single combined configuration.
+        Merge multiple configuration instances into a single combined
+        configuration.
 
-        This method creates a new dynamic configuration class that contains all input
-        configurations as nested fields. Each configuration becomes a nested_param field
-        in the merged result.
+        This method creates a dynamic configuration class that contains all
+        input configurations as nested fields. Each configuration becomes
+        a nested_param field in the merged result.
 
         Args:
-            configs: Either a dict mapping field names to config instances, or a list of
-                    config instances (field names will be derived from class names)
-            merged_name: Name for the dynamically created merged class (default: "MergedConfig")
+            configs: Either a dict mapping field names to config instances, or
+                a list of config instances (field names derived from class names)
+            merged_name: Name for the dynamically created merged class
+                (default: "MergedConfig")
 
         Returns:
-            A new configuration instance containing all input configs as nested fields,
-            with _is_merged flag set to True
+            A configuration containing all input configs as nested fields with
+            _is_merged flag set to True
 
         Raises:
-            TypeError: If configs is not a dict or list, or if any config is not a BaseConfig instance
+            TypeError: If configs is not a dict or list, or if any config is
+                not a BaseConfig instance
             ValueError: If field name conflicts occur
 
         Example:
@@ -1228,10 +1541,10 @@ class BaseConfig:
         """
 
         # Collect field definitions
-        field_definitions: list[tuple[str, type, Field]] = []
-        merged_data: dict[str, Any] = {}
-        seen_field_names: set[str] = set()
-        merged_raw_data: dict[str, Any] = {}
+        field_definitions: List[Tuple[str, Type[Any], Field]] = []
+        merged_data: Dict[str, Any] = {}
+        seen_field_names: Set[str] = set()
+        merged_raw_data: Dict[str, Any] = {}
 
         # Handle different input types
         if isinstance(configs, dict):
@@ -1239,7 +1552,8 @@ class BaseConfig:
             for field_name, config in configs.items():
                 if not isinstance(config, BaseConfig):
                     raise TypeError(
-                        f"All configurations must be instances of BaseConfig, got: {type(config)}"
+                        "All configurations must be instances of BaseConfig, "
+                        f"got: {type(config)}"
                     )
 
                 # Check field name conflicts
@@ -1270,10 +1584,11 @@ class BaseConfig:
             for config in configs:
                 if not isinstance(config, BaseConfig):
                     raise TypeError(
-                        f"All configurations must be instances of BaseConfig, got: {type(config)}"
+                        "All configurations must be instances of BaseConfig, "
+                        f"got: {type(config)}"
                     )
 
-                # Use configuration class name as field name (DataLoaderConfig -> dataloader)
+                # Derive field name from class (e.g. -> dataloader)
                 field_name = config.__class__.__name__.lower().replace("config", "")
 
                 # Check field name conflicts
@@ -1301,7 +1616,8 @@ class BaseConfig:
 
         else:
             raise TypeError(
-                f"configs must be either dict[str, BaseConfig] or list[BaseConfig], got: {type(configs)}"
+                "configs must be either dict[str, BaseConfig] or list[BaseConfig], "
+                f"got: {type(configs)}"
             )
 
         # Dynamically create merged class
@@ -1332,11 +1648,11 @@ class BaseConfig:
         """
         # Get all fields from the dataclass
         class_fields = fields(config_class)
-        init_kwargs: dict[str, Any] = {}
+        init_kwargs: Dict[str, Any] = {}
 
-        for field in class_fields:
+        for field_item in class_fields:
             # Check if this is a nested_param field
-            metadata = field.metadata
+            metadata = field_item.metadata
             if metadata.get("param_scope") == ParamScope.NESTED:
                 nested_class = metadata.get("nested_class")
                 if (
@@ -1345,7 +1661,9 @@ class BaseConfig:
                     and issubclass(nested_class, BaseConfig)
                 ):
                     # Recursively instantiate the nested class
-                    init_kwargs[field.name] = cls._instantiate_with_nested(nested_class)
+                    init_kwargs[field_item.name] = cls._instantiate_with_nested(
+                        nested_class
+                    )
 
         # Create instance with nested fields
         return config_class(**init_kwargs)  # type: ignore[return-value]
@@ -1353,19 +1671,23 @@ class BaseConfig:
     @classmethod
     def combine(
         cls,
-        configs: dict[str, type[Self]] | list[type[Self]],
+        configs: Union[Dict[str, Type[Self]], List[Type[Self]]],
         combined_name: str = "CombinedConfig",
     ) -> Self:
         """
-        Combine multiple BaseConfig subclass definitions into a single Config instance.
+        Combine multiple BaseConfig subclass definitions into a single Config
+        instance.
 
-        This method converts each class definition to instances, then merges them using
-        the merge() method. Useful for generating TOML templates from multiple config classes.
+        This method converts each class definition into instances, then merges
+        them using the merge() method. Useful for generating TOML templates from
+        multiple config classes.
 
         Args:
-            configs: Either a dict mapping field names to BaseConfig subclasses, or a
-                    list of BaseConfig subclasses (field names derived from class names)
-            combined_name: Name for the dynamically created combined class (default: "CombinedConfig")
+            configs: Either a dict mapping field names to BaseConfig subclasses,
+                or a list of BaseConfig subclasses (field names derived from
+                class names)
+            combined_name: Name for the dynamically created combined class
+                (default: "CombinedConfig")
 
         Returns:
             A new Config instance containing all fields from the input classes,
@@ -1399,14 +1721,16 @@ class BaseConfig:
                     model_class, BaseConfig
                 ):
                     raise TypeError(
-                        f"All values must be BaseConfig subclasses, got {model_class} for key '{field_name}'"
+                        "All values must be BaseConfig subclasses, got "
+                        f"{model_class} for key '{field_name}'"
                     )
 
             # Create instances from each class with recursive nested instantiation
-            config_dict_instances: dict[str, Self] = {}
+            config_dict_instances: Dict[str, Self] = {}
             for field_name, model_class in configs.items():
                 instance = cls._instantiate_with_nested(model_class)
-                config_dict_instances[field_name] = instance  # type: ignore[assignment]
+                # type: ignore[assignment]
+                config_dict_instances[field_name] = instance
 
             # Use merge to combine all instances
             return cls.merge(config_dict_instances, merged_name=combined_name)
@@ -1421,11 +1745,12 @@ class BaseConfig:
                     model_class, BaseConfig
                 ):
                     raise TypeError(
-                        f"All arguments must be BaseConfig subclasses, got: {model_class}"
+                        "All arguments must be BaseConfig subclasses, "
+                        f"got: {model_class}"
                     )
 
             # Create instances from each class with recursive nested instantiation
-            config_list_instances: list[Self] = []
+            config_list_instances: List[Self] = []
             for model_class in configs:
                 instance = cls._instantiate_with_nested(model_class)
                 config_list_instances.append(instance)  # type: ignore[arg-type]
@@ -1435,5 +1760,6 @@ class BaseConfig:
 
         else:
             raise TypeError(
-                f"model_classes must be either dict[str, type[BaseConfig]] or list[type[BaseConfig]], got: {type(configs)}"
+                "model_classes must be either dict[str, type[BaseConfig]] or "
+                f"list[type[BaseConfig]], got: {type(configs)}"
             )

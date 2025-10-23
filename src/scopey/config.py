@@ -1121,11 +1121,28 @@ class BaseConfig:
         if value is None:
             required = meta.get("required", False)
             parts.append("required" if required else "optional")
-        # Default value (only for non-None, non-empty fields)
-        elif value not in (None, "", 0, False, []):
-            parts.append(f"default: {value}")
+
+        # Default value (always derived from metadata to preserve falsy literals)
+        default_meta = meta.get("default", MISSING)
+        if default_meta is not MISSING:
+            formatted_default = self._format_default_value(default_meta)
+            if formatted_default is not None:
+                parts.append(f"default: {formatted_default}")
 
         return " | ".join(parts)
+
+    def _format_default_value(self, default: Any) -> Optional[str]:
+        """Convert stored default metadata into a human-readable string."""
+        if default is None:
+            return None
+
+        if isinstance(default, str):
+            return default if default else '""'
+
+        if isinstance(default, bool):
+            return "True" if default else "False"
+
+        return str(default)
 
     def _render_plain_field_lines(
         self,
@@ -1148,6 +1165,16 @@ class BaseConfig:
                     meta = metadata_cache.get(key)
                     if meta is None:
                         meta = self._get_field_metadata(full_path, key)
+                    else:
+                        # metadata from to_dict may omit defaults if serialized externally;
+                        # fall back to dataclass introspection so comments remain complete.
+                        if meta.get("default", MISSING) is MISSING:
+                            fallback_meta = self._get_field_metadata(full_path, key)
+                            if fallback_meta:
+                                # merge while preserving existing entries
+                                merged_meta = fallback_meta.copy()
+                                merged_meta.update(meta)
+                                meta = merged_meta
 
                     actual_value = plain_fields.get(key)
                     comment = self._format_field_comment(key, actual_value, meta)

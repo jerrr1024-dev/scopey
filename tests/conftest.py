@@ -6,6 +6,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator
+import sys
+
+# Ensure local source tree has priority over any installed distribution.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pytest
 
